@@ -15,6 +15,7 @@ import { Button } from '../components/ui.jsx'
 import { tappable } from '../lib/use-sheet-keyboard.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { dayNoteOf } from '../lib/day-notes.js'
+import { DailyLogCard } from '../components/DailyLog.jsx'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
@@ -157,6 +158,10 @@ export default function Home() {
         </Button>
       </div>}
     </div>
+
+    {/* The day's log — calories, protein, steps, cardio, sleep, alcohol — and where the cut
+        stands, one tap from Progress (components/DailyLog.jsx). */}
+    <DailyLogCard />
 
     {/* Jump to the gym check-in cards (QR membership codes). Shown here as a quick tap on
         arrival at the gym; folds away per user via the "Gym check-in" switch in Settings. */}

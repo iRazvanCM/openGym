@@ -1,0 +1,278 @@
+// The daily log: the sheet a day is logged in, and the Home card that opens it.
+//
+// One sheet for everything a day of a cut is judged by — weight, calories, protein, steps,
+// cardio, sleep, alcohol, training, how hungry and how flat it felt — so logging takes one stop
+// instead of five. Weight is written to S.bodyweight and the waist to S.measurements, the lists
+// the rest of the app already reads; everything else goes to S.dailyLog (lib/cut.js). Nothing here
+// imports sheets.jsx: Home's tests mock that module, and the card renders inside Home.
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useStore } from '../store/useStore.js'
+import { useUI } from '../store/useUI.js'
+import {
+  addDays, cardioMinutesOn, cutOf, cutReport, isIso, logFor, logHasValues, normalizeDailyLogState,
+  normalizeLogEntry, workoutsOn,
+} from '../lib/cut.js'
+import { normalizeMeasurementsState, measurementEntryHasValues, emptyMeasurement, toMeasurementDisplay, fromMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
+import { fmtNum, fmtDate, todayISO } from '../lib/format.js'
+import { t, dateLocale } from '../lib/i18n.js'
+import { tappable } from '../lib/use-sheet-keyboard.js'
+import Icon from './Icon.jsx'
+import { Button, NumberField, Switch, TextField } from './ui.jsx'
+
+const toast = message => useUI.getState().toast(message)
+export const fmtInt = n => (n == null ? '–' : Math.round(n).toLocaleString(dateLocale()))
+/** A rate or a percentage: always one decimal, so a steady 1.0 kg a week does not read as "1". */
+export const fmt1 = n => (n == null ? '–' : (Math.round(n * 10) / 10).toLocaleString(dateLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }))
+
+/** How the screens name and colour where the cut stands (cutReport's `phase`). */
+export function phaseInfo(phase) {
+  switch (phase) {
+    case 'ok': return { label: t('On track'), tone: 'good', icon: 'checkCircle' }
+    case 'early': return { label: t('First week'), tone: 'info', icon: 'hourglass' }
+    case 'slow': return { label: t('Slower this week'), tone: 'warn', icon: 'gauge' }
+    case 'stall': return { label: t('Stalled'), tone: 'bad', icon: 'warning' }
+    case 'fast': return { label: t('Losing fast'), tone: 'warn', icon: 'bolt' }
+    case 'gain': return { label: t('Going up'), tone: 'bad', icon: 'arrowUp' }
+    case 'break': return { label: t('Diet break'), tone: 'info', icon: 'sun' }
+    case 'stale': return { label: t('Weigh in to update'), tone: 'neutral', icon: 'scale' }
+    default: return { label: t('No weigh-ins yet'), tone: 'neutral', icon: 'scale' }
+  }
+}
+
+/** "−1.0 kg/wk": the trend's weekly change, a loss shown with a minus. */
+export const fmtRate = (lossWk, unit) => (lossWk == null ? '–' : (lossWk > 0.05 ? '−' : lossWk < -0.05 ? '+' : '') + fmt1(Math.abs(lossWk)) + ' ' + unit + t('/wk'))
+
+const WEIGHT_RANGE = { kg: [25, 400], lb: [55, 880] }
+const SCALE_LABELS = {
+  energy: ['Drained', 'Low', 'OK', 'Good', 'Great'],
+  hunger: ['None', 'Mild', 'Normal', 'Hungry', 'Starving'],
+}
+
+/* ================================================================ the sheet == */
+
+function DayForm({ date, close }) {
+  const S = useStore(s => s.S)
+  const cut = cutOf(S)
+  const unit = S.unit === 'lb' ? 'lb' : 'kg'
+  const lenUnit = measurementUnit(S.unit)
+  const entry = logFor(S, date)
+  const bw = (S.bodyweight || []).find(b => b.d === date) || null
+  const waistEntry = (S.measurements || []).find(m => m.d === date) || null
+  const waistShown = waistEntry?.waist != null ? toMeasurementDisplay(waistEntry.waist, S.unit) : null
+  const workouts = workoutsOn(S, date)
+  const fromWorkouts = cardioMinutesOn(S, date)
+
+  const [v, setV] = useState(() => ({
+    w: bw ? bw.w : null,
+    waist: waistShown,
+    kcal: entry?.kcal ?? null,
+    protein: entry?.protein ?? null,
+    steps: entry?.steps ?? null,
+    cardio: entry?.cardio ?? (fromWorkouts || null),
+    sleep: entry?.sleep ?? null,
+    dry: entry ? entry.alcohol !== true : true,
+    gym: entry?.gym === true,
+    energy: entry?.energy ?? null,
+    hunger: entry?.hunger ?? null,
+    note: entry?.note || '',
+  }))
+  const set = (k, val) => setV(x => ({ ...x, [k]: val }))
+
+  const save = () => {
+    if (!isIso(date) || date > todayISO()) { toast(t('Choose a valid date')); return }
+    const w = v.w == null || v.w === 0 ? null : Math.round(v.w * 10) / 10
+    const [lo, hi] = WEIGHT_RANGE[unit]
+    if (w != null && (w < lo || w > hi)) { toast(t('Enter a valid weight')); return }
+    const waistCm = v.waist == null || v.waist === 0 ? null : fromMeasurementDisplay(v.waist, S.unit)
+    const now = Date.now()
+    const next = normalizeLogEntry({
+      d: date, t: now, kcal: v.kcal, protein: v.protein, steps: v.steps,
+      // the minutes a workout already holds are read from it; only a different number is kept
+      cardio: v.cardio && v.cardio !== fromWorkouts ? v.cardio : null,
+      sleep: v.sleep, alcohol: !v.dry, gym: workouts.length ? null : (v.gym ? true : null),
+      energy: v.energy, hunger: v.hunger, note: v.note,
+    })
+    useStore.getState().update(s => {
+      s.dailyLog = (Array.isArray(s.dailyLog) ? s.dailyLog : []).filter(e => e?.d !== date)
+      if (logHasValues(next)) s.dailyLog.push(next)
+      normalizeDailyLogState(s)
+      // The weigh-in of that day, only when it changed: an untouched one keeps its own time.
+      const i = s.bodyweight.findIndex(b => b.d === date)
+      if (w != null && (i < 0 || s.bodyweight[i].w !== w)) {
+        if (i >= 0) { s.bodyweight[i].w = w; s.bodyweight[i].t = now } else s.bodyweight.push({ d: date, w, t: now })
+        s.bodyweight.sort((a, b) => (a.d < b.d ? -1 : 1))
+      } else if (w == null && i >= 0 && bw) s.bodyweight.splice(i, 1)
+      // The waist goes to that day's measurement check-in, which may hold other circumferences.
+      if (waistCm != null || waistShown != null) {
+        if (!Array.isArray(s.measurements)) s.measurements = []
+        let m = s.measurements.find(x => x.d === date)
+        if (!m && waistCm != null) { m = emptyMeasurement(date, s.customMeasurements || []); s.measurements.push(m) }
+        if (m && (m.waist ?? null) !== waistCm) { m.waist = waistCm; m.t = now }
+        if (m && !measurementEntryHasValues(m)) s.measurements = s.measurements.filter(x => x !== m)
+        normalizeMeasurementsState(s)
+      }
+    })
+    toast(date === todayISO() ? t('Today saved') : t('Day saved'))
+    close()
+  }
+
+  const remove = () => {
+    useStore.getState().update(s => { s.dailyLog = (s.dailyLog || []).filter(e => e?.d !== date) })
+    toast(t('Log removed'))
+    close()
+  }
+
+  const field = (key, label, u, { decimal = false, hint = null } = {}) => <label className="measure-field" key={key}>
+    <span>{label}{hint != null && <i className="dl-hint"> · {hint}</i>}</span>
+    <span className="measure-input">
+      <NumberField nullable decimal={decimal} value={v[key]} onChange={val => set(key, val)} />
+      {u && <i>{u}</i>}
+    </span>
+  </label>
+
+  const scale = (key, label) => <div className="dl-scale">
+    <div className="dl-scale-t">{label}</div>
+    <div className="dl-scale-o" role="radiogroup" aria-label={label}>
+      {SCALE_LABELS[key].map((name, i) => <button key={i} role="radio" aria-checked={v[key] === i + 1}
+        className={'chip nocap' + (v[key] === i + 1 ? ' on' : '')} onClick={() => set(key, v[key] === i + 1 ? null : i + 1)}>
+        <b>{i + 1}</b> {t(name)}
+      </button>)}
+    </div>
+  </div>
+
+  return <>
+    <div className="measure-form dl-form">
+      {field('w', t('Weight'), unit, { decimal: true })}
+      {field('waist', t('Waist'), lenUnit, { decimal: true, hint: t('weekly') })}
+      {field('kcal', t('Calories'), 'kcal', { hint: fmtInt(cut.kcal) })}
+      {field('protein', t('Protein'), 'g', { hint: fmtInt(cut.protein) })}
+      {field('steps', t('Steps'), '', { hint: fmtInt(cut.steps) })}
+      {field('cardio', t('Cardio'), t('min'), { hint: fmtInt(cut.cardio) })}
+      {field('sleep', t('Sleep'), t('h'), { decimal: true, hint: fmtNum(cut.sleep) })}
+    </div>
+
+    <div className="sect-b dl-flags">
+      <div className="lrow">
+        <span className="lrow-i" style={{ '--tint': 'var(--purple)' }}><Icon name="shield" /></span>
+        <span className="lrow-m"><span className="lrow-t">{t('Alcohol-free')}</span></span>
+        <Switch checked={v.dry} onChange={on => set('dry', on)} aria-label={t('Alcohol-free')} />
+      </div>
+      <div className="lrow">
+        <span className="lrow-i" style={{ '--tint': 'var(--orange)' }}><Icon name="dumbbell" /></span>
+        <span className="lrow-m">
+          <span className="lrow-t">{t('Trained')}</span>
+          {workouts.length > 0 && <span className="lrow-s">{t('Logged: {0}', workouts.map(w => w.name || t('Workout')).join(', '))}</span>}
+        </span>
+        <Switch checked={workouts.length > 0 || v.gym} disabled={workouts.length > 0} onChange={on => set('gym', on)} aria-label={t('Trained')} />
+      </div>
+    </div>
+
+    {scale('energy', t('Energy'))}
+    {scale('hunger', t('Hunger'))}
+
+    <TextField value={v.note} maxLength={500} placeholder={t('Note (optional)')} onChange={e => set('note', e.target.value)} style={{ marginTop: 12 }} />
+    <div style={{ height: 14 }} />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+    {entry && <><div style={{ height: 6 }} /><Button variant="ghost" className="dim" onClick={remove}>{t('Clear this day\'s log')}</Button></>}
+  </>
+}
+
+export function DailyLogSheet({ initial, close }) {
+  const today = todayISO()
+  const [date, setDate] = useState(initial && isIso(initial) && initial <= today ? initial : today)
+  const go = n => { const d = addDays(date, n); if (d <= today) setDate(d) }
+  return <>
+    <h3 style={{ marginBottom: 4 }}>{t('Daily log')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Fill in what you have. Empty fields stay empty.')}</div>
+    <div className="dl-day">
+      <button className="iconbtn" onClick={() => go(-1)} aria-label={t('Previous day')}><Icon name="chevronLeft" /></button>
+      {/* The day reads as words; the native date picker lies over the whole pill, invisible, so a
+          tap anywhere on it opens the system picker (showPicker for a desktop browser's click). */}
+      <label className="dl-day-m">
+        <span>{date === today ? t('Today') : fmtDate(date, true)}</span>
+        <Icon name="calendar" className="dl-day-ic" />
+        <input type="date" value={date} max={today} aria-label={t('Date')}
+          onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* not allowed here: the tap still focuses it */ } }}
+          onChange={e => { if (isIso(e.target.value) && e.target.value <= today) setDate(e.target.value) }} />
+      </label>
+      <button className="iconbtn" onClick={() => go(1)} disabled={date >= today} aria-label={t('Next day')}><Icon name="chevronRight" /></button>
+    </div>
+    {/* keyed on the day: moving to another day starts that day's own form, not this one's edits */}
+    <DayForm key={date} date={date} close={close} />
+  </>
+}
+
+export function dailyLogSheet(iso) {
+  return useUI.getState().openSheet(close => <DailyLogSheet initial={iso} close={close} />)
+}
+
+/* ============================================================== the Home card == */
+
+/** The day's numbers as small pills, each against its target. */
+export function DayChips({ S, iso, cut = cutOf(S) }) {
+  const e = logFor(S, iso) || {}
+  const cardio = e.cardio ?? (cardioMinutesOn(S, iso) || null)
+  const trained = workoutsOn(S, iso).length > 0 || e.gym === true
+  const bw = (S.bodyweight || []).find(b => b.d === iso)
+  const unit = S.unit === 'lb' ? 'lb' : 'kg'
+  const chip = (key, icon, val, target, u, { hit, over } = {}) => {
+    const has = val != null
+    const tone = !has ? 'off' : hit ? 'hit' : over ? 'over' : ''
+    return <span key={key} className={'dl-chip ' + tone}>
+      <Icon name={icon} />
+      <span>{has ? fmtInt(val) : '–'}{target != null && <span className="dl-of"> / {fmtInt(target)}</span>}{u && ' ' + u}</span>
+    </span>
+  }
+  return <div className="dl-chips">
+    {bw && <span className="dl-chip hit"><Icon name="scale" /><span>{fmtNum(bw.w)} {unit}</span></span>}
+    {chip('kcal', 'flame', e.kcal, cut.kcal, 'kcal', { hit: e.kcal != null && e.kcal <= cut.kcal + 100 && e.kcal >= cut.kcal - 300, over: e.kcal > cut.kcal + 100 })}
+    {chip('protein', 'bolt', e.protein, cut.protein, 'g', { hit: e.protein >= cut.protein * 0.9 })}
+    {chip('steps', 'steps', e.steps, cut.steps, '', { hit: e.steps >= cut.steps })}
+    {chip('cardio', 'figureRun', cardio, cut.cardio, t('min'), { hit: cardio >= cut.cardio })}
+    {e.sleep != null
+      ? <span className={'dl-chip' + (e.sleep >= 7 ? ' hit' : ' over')}><Icon name="moon" /><span>{fmtNum(e.sleep)} {t('h')}</span></span>
+      : <span className="dl-chip off"><Icon name="moon" /><span>–</span></span>}
+    {e.alcohol != null && <span className={'dl-chip ' + (e.alcohol ? 'over' : 'hit')}><Icon name="shield" /><span>{e.alcohol ? t('Alcohol') : t('No alcohol')}</span></span>}
+    {trained && <span className="dl-chip hit"><Icon name="dumbbell" /><span>{t('Trained')}</span></span>}
+  </div>
+}
+
+export function DailyLogCard() {
+  const nav = useNavigate()
+  const S = useStore(s => s.S)
+  const today = todayISO()
+  const cut = cutOf(S)
+  const logged = logFor(S, today)
+  const report = useMemo(() => cutReport(S, today), [S, today])
+  const info = phaseInfo(report.phase)
+  const unit = report.unit
+  const filled = logged ? ['kcal', 'protein', 'steps', 'sleep'].filter(k => logged[k] != null).length + (logged.alcohol != null ? 1 : 0) : 0
+
+  return <div className="card dl-card">
+    <div className="row between" style={{ gap: 10 }}>
+      <div className="row" style={{ gap: 9, minWidth: 0 }}>
+        <span className="lrow-i" style={{ '--tint': 'var(--indigo)' }}><Icon name="clipboard" /></span>
+        <div style={{ minWidth: 0 }}>
+          <div className="dl-lbl">{t('Daily log')}</div>
+          <div className="dl-ttl">{logged ? t('{0} of 5 logged today', filled) : t('Nothing logged today')}</div>
+        </div>
+      </div>
+      <Button size="sm" variant={logged ? 'plain' : 'tinted'} icon={logged ? 'pencil' : 'plus'} onClick={() => dailyLogSheet(today)}>{logged ? t('Edit') : t('Log')}</Button>
+    </div>
+    <DayChips S={S} iso={today} cut={cut} />
+    {report.trend.length > 0 && <div className="dl-trend" {...tappable(() => nav('/progress'))}>
+      <div className="dl-trend-m">
+        <span className="muted small">{t('Trend')}</span>
+        <b>{fmtNum(report.trendW)} {unit}</b>
+        <span className="dl-rate">{fmtRate(report.lossWk, unit)}</span>
+      </div>
+      <span className={'dl-status ' + info.tone}><Icon name={info.icon} />{info.label}</span>
+      <Icon name="chevronRight" className="chev" />
+    </div>}
+    {!report.trend.length && <div className="dl-trend" {...tappable(() => nav('/progress'))}>
+      <span className="muted small" style={{ flex: 1 }}>{t('Open Progress to set up your cut')}</span>
+      <Icon name="chevronRight" className="chev" />
+    </div>}
+  </div>
+}

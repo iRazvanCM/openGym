@@ -984,3 +984,29 @@ describe('body measurements across devices (#82)', () => {
     expect(next.measurements[0].t).toBe(1000)
   })
 })
+
+describe('the daily log across devices', () => {
+  const base = { unit: 'kg', _ts: 100 }
+  it('keeps both devices\' days, and of one day the one saved later', () => {
+    const phone = { ...base, _ts: 300, dailyLog: [{ d: '2026-11-03', t: 200, kcal: 1950 }, { d: '2026-11-05', t: 300, steps: 11000 }] }
+    const desk = { ...base, _ts: 250, dailyLog: [{ d: '2026-11-03', t: 250, kcal: 2100 }, { d: '2026-11-04', t: 250, sleep: 7.5 }] }
+    for (const out of [mergeStates(phone, desk), mergeStates(desk, phone)]) {
+      expect(out.dailyLog.map(e => e.d)).toEqual(['2026-11-03', '2026-11-04', '2026-11-05'])
+      expect(out.dailyLog[0].kcal).toBe(2100)
+    }
+  })
+  it('a day deleted on one device stays deleted', () => {
+    const prev = { ...base, dailyLog: [{ d: '2026-11-03', t: 200, kcal: 1950 }] }
+    const next = stampDeletions(prev, { ...base, dailyLog: [] }, 500)
+    expect(next.deleted.dailyLog['2026-11-03']).toBe(500)
+    expect(mergeStates({ ...next, _ts: 500 }, { ...prev, _ts: 300 }).dailyLog || []).toEqual([])
+  })
+  it('a day edited now takes the change\'s time, and the plan merges as one setting', () => {
+    const prev = { ...base, dailyLog: [{ d: '2026-11-03', t: 200, kcal: 1950 }], cut: { start: '2026-11-02', kcal: 2000 } }
+    const next = { ...base, dailyLog: [{ d: '2026-11-03', t: 201, kcal: 2050 }], cut: { start: '2026-11-02', kcal: 1900 } }
+    stampChange(prev, next, 1000)
+    expect(next.dailyLog[0].t).toBe(1000)
+    expect(next.edited.cut).toBe(1000)
+    expect(next.edited.dailyLog).toBeUndefined()
+  })
+})

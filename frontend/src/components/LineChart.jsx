@@ -14,7 +14,9 @@ const W = 340   // viewBox width; the svg stretches to its container, height com
 //   a curve of reps-in-reserve reads upside down, with the hardest sets at the floor.
 //   series draws several lines instead of one: [{ points, color }] (issue #145, one per set
 //   number). `points` then only anchors the hover — one per date, its `note` the tooltip — and
-//   the y axis spans every series.
+//   the y axis spans every series. A series may also say how it is drawn: `width` (stroke),
+//   `dash` (a stroke-dasharray), `line: false` (dots only — scale readings under a trend line)
+//   and `dots: false` (the line only), with `r` for the dot radius.
 export default function LineChart({ points, h = 150, unit = '', color = 'var(--acc)', axes = true, goal = null, invert = false, series = null }) {
   const svgRef = useRef(null)
   const wrapRef = useRef(null)
@@ -139,11 +141,11 @@ export default function LineChart({ points, h = 150, unit = '', color = 'var(--a
         {/* The first series is drawn widest and underneath, each next one thinner on top, so
             lines that share their values show as nested stripes instead of hiding each other. */}
         {multi ? series.map((s, k) => {
-          const sw = 2 + (series.length - 1 - k) * 2.4
+          const sw = s.width ?? 2 + (series.length - 1 - k) * 2.4
           return <g key={'s' + k}>
-            {s.points.length > 1 && <polyline points={s.points.map(p => X(p.t).toFixed(1) + ',' + Y(p.y).toFixed(1)).join(' ')}
-              fill="none" stroke={s.color} strokeWidth={sw} strokeLinejoin="round" strokeLinecap="round" />}
-            {s.points.map((p, i) => <circle key={i} cx={X(p.t)} cy={Y(p.y)} r={sw / 2 + 1.2} fill={s.color} />)}
+            {s.line !== false && s.points.length > 1 && <polyline points={s.points.map(p => X(p.t).toFixed(1) + ',' + Y(p.y).toFixed(1)).join(' ')}
+              fill="none" stroke={s.color} strokeWidth={sw} strokeLinejoin="round" strokeLinecap="round" strokeDasharray={s.dash} />}
+            {s.dots !== false && s.points.map((p, i) => <circle key={i} cx={X(p.t)} cy={Y(p.y)} r={s.r ?? sw / 2 + 1.2} fill={s.color} />)}
           </g>
         }) : <>
           <polygon points={`${P.l},${H - P.b} ${poly} ${X(last.t).toFixed(1)},${H - P.b}`} fill={`url(#${gid})`} />
