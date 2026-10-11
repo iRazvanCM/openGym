@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MEALS, addFoodItem, basicFoods, cleanPer100, copyMeal, dayNutrition, foodFor, foodLang, foodTotals, matches,
+  MEALS, addFoodItem, basicCats, basicFoods, cleanPer100, copyMeal, dayNutrition, foodFor, foodLang, foodTotals, matches,
   mealAt, mealTotals, myFoodByCode, normalizeFood, normalizeFoodItem, normalizeFoodList, portion, recentFoods,
   removeFoodItem, saveMyFood, searchLocal, updateFoodItem,
 } from './food.js'
-import { BASIC_FOODS } from './food-basics.js'
+import { BASIC_FOODS, FOOD_CATS } from './food-basics.js'
 
 const CHICKEN = { kcal: 120, p: 22.5, c: 0, f: 2.6 }
 
@@ -150,19 +150,33 @@ describe('finding food', () => {
 
 describe('the built-in foods', () => {
   // The calories are the reference figures, worked out with each food's own energy factors; 4/4/9
-  // on the macros runs high where carbs include a lot of fibre (vegetables, ~1.3×) and low on
-  // drinks whose calories are mostly alcohol (7 kcal a gram, no macro of its own).
+  // on the macros runs high where carbs include a lot of fibre and acids (vegetables, citrus — a
+  // few kcal on foods that have few) and low on drinks whose calories are mostly alcohol (7 kcal
+  // a gram, no macro of its own).
   it('have sane labels: the calories within reach of what the macros make', () => {
-    const ALCOHOL = new Set(['basic:beer', 'basic:red-wine'])
+    const ALCOHOL = new Set(['basic:beer', 'basic:red-wine', 'basic:white-wine', 'basic:vodka', 'basic:whisky', 'basic:tuica'])
     for (const f of BASIC_FOODS) {
       const { kcal, p, c, f: fat } = f.per100
       const fromMacros = 4 * p + 4 * c + 9 * fat
       expect(f.id.startsWith('basic:'), f.id).toBe(true)
       expect(kcal, f.id).toBeGreaterThan(0)
       if (ALCOHOL.has(f.id)) { expect(fromMacros, f.id).toBeLessThan(kcal); continue }
-      expect(fromMacros, f.id).toBeLessThan(kcal * 1.35 + 5)
+      expect(fromMacros, f.id).toBeLessThan(kcal * 1.35 + 16)
       expect(fromMacros, f.id).toBeGreaterThan(kcal * 0.85 - 5)
     }
     expect(new Set(BASIC_FOODS.map(f => f.id)).size).toBe(BASIC_FOODS.length)
+  })
+
+  it('sit on a shelf each, and come raw and cooked every way a kitchen cooks them', () => {
+    const cats = new Set(FOOD_CATS.map(c => c.id))
+    for (const f of BASIC_FOODS) expect(cats.has(f.cat), f.id).toBe(true)
+    for (const c of cats) expect(BASIC_FOODS.some(f => f.cat === c), c).toBe(true)
+    const chicken = BASIC_FOODS.filter(f => f.id.startsWith('basic:chicken-breast')).map(f => f.ro)
+    for (const how of ['crud', 'fiert', 'grătar', 'cuptor', 'air fryer', 'tigaie']) expect(chicken.some(n => n.includes(how)), how).toBe(true)
+    // the method is findable in one word, and the shelf narrows the list
+    expect(searchLocal({}, 'airfryer', 'ro').basics.length).toBeGreaterThan(5)
+    expect(searchLocal({}, 'pui tigaie', 'ro').basics[0].name).toBe('Piept de pui, la tigaie')
+    expect(searchLocal({}, '', 'ro', 'drinks').basics.every(f => f.unit === 'ml')).toBe(true)
+    expect(basicCats('ro')[0]).toEqual({ id: 'meat', name: 'Carne' })
   })
 })

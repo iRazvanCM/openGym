@@ -21,7 +21,7 @@
 //
 // Two devices that change the same day's diary at once keep the day saved last, as for every
 // daily-log field (lib/sync-merge.js: one entry per day, the later `t` wins).
-import { BASIC_FOODS, BASIC_BY_ID } from './food-basics.js'
+import { BASIC_FOODS, BASIC_BY_ID, FOOD_CATS } from './food-basics.js'
 import { isoOf } from './format.js'
 
 export const MEALS = ['b', 'l', 'd', 's']
@@ -258,10 +258,15 @@ export function foodLang(appLang, languages = (typeof navigator !== 'undefined' 
 }
 
 const basicAsFood = (b, lang) => ({
-  id: b.id, ref: b.id, src: 'basic', name: lang === 'ro' ? b.ro : b.en, alt: lang === 'ro' ? b.en : b.ro, brand: '', code: '',
+  id: b.id, ref: b.id, src: 'basic', cat: b.cat, name: lang === 'ro' ? b.ro : b.en,
+  // what a search also finds it by: the other language's name and its cooking method's words
+  alt: (lang === 'ro' ? b.en : b.ro) + (b.kw ? ' ' + b.kw : ''), brand: '', code: '',
   unit: b.unit, per100: b.per100,
   ...(b.serving ? { serving: { label: lang === 'ro' ? b.serving.ro : b.serving.en, amount: b.serving.amount } } : {}),
 })
+
+/** The shelves of the built-in list, named in `lang`: [{ id, name }]. */
+export const basicCats = (lang = 'en') => FOOD_CATS.map(c => ({ id: c.id, name: lang === 'ro' ? c.ro : c.en }))
 
 /** The built-in foods as foods, named in `lang` ('ro' or anything else for English). */
 export function basicFoods(lang = 'en') {
@@ -320,12 +325,21 @@ export function lastPortionOf(S, food) {
   return null
 }
 
-/** My foods and the built-in ones that match a query, mine first. */
-export function searchLocal(S, query, lang = 'en') {
+// Best first: a name that starts with what was typed, then one with every word in the name
+// itself (not only in the other language or the method words), then the rest in list order.
+const rank = (list, q, nameOf) => {
+  const fq = foldText(q)
+  const score = f => (foldText(nameOf(f)).startsWith(fq) ? 0 : matches(nameOf(f), q) ? 1 : 2)
+  return list.map((f, i) => [score(f), i, f]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2])
+}
+
+/** My foods and the built-in ones that match a query, mine first; `cat` narrows the built-in ones. */
+export function searchLocal(S, query, lang = 'en', cat = null) {
   const q = String(query || '').trim()
   const mine = (S?.foods || []).filter(f => !q || matches(f.name + ' ' + (f.brand || ''), q) || (f.code && f.code === q))
-  const basics = basicFoods(lang).filter(f => !q || matches(f.name + ' ' + f.alt, q))
-  return { mine, basics }
+  let basics = basicFoods(lang).filter(f => (!cat || f.cat === cat) && (!q || matches(f.name + ' ' + f.alt, q)))
+  if (q) basics = rank(basics, q, f => f.name)
+  return { mine: q ? rank(mine, q, f => f.name) : mine, basics }
 }
 
 /* ------------------------------------------------------------------------- targets -- */

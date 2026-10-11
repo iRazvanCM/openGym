@@ -2274,6 +2274,10 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .food-more-t{font-size:15px;font-weight:500;line-height:1.3}
 /* the sheets */
 .food-meals{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 14px}
+.food-cats{display:flex;gap:6px;overflow-x:auto;margin:0 -18px 10px;padding:0 18px 2px;scrollbar-width:none}
+.food-cats::-webkit-scrollbar{display:none}
+.food-cats .chip{background:var(--surface-2);white-space:nowrap}
+.food-cats .chip.on{background:var(--acc)}
 .food-meals .chip{background:var(--surface-2)}
 .food-meals .chip.on{background:var(--acc)}
 .food-acts{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 14px}

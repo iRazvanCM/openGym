@@ -16,7 +16,7 @@ import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
   MEALS, MEAL_NAMES, addFoodItem, cleanPer100, foodFor, foodLang, lastPortionOf, myFoodByCode, normalizeFood,
-  portion, recentFoods, removeFoodItem, saveMyFood, searchLocal, updateFoodItem,
+  portion, recentFoods, removeFoodItem, saveMyFood, searchLocal, updateFoodItem, basicCats,
 } from '../lib/food.js'
 import { cleanCode, offProduct, offSearch } from '../lib/off.js'
 import { MOBILE } from '../lib/mobile.js'
@@ -318,6 +318,7 @@ function AddFood({ date, meal: meal0, close }) {
   const [busy, setBusy] = useState(false)
   const [added, setAdded] = useState(0)
   const [allBasics, setAllBasics] = useState(false)
+  const [cat, setCat] = useState(null)
   const inputRef = useRef(null)
   const syncKeyboard = useSheetKeyboard(inputRef)
   const today = todayISO()
@@ -325,7 +326,7 @@ function AddFood({ date, meal: meal0, close }) {
   const code = /^\d{8,14}$/.test(query) ? query : ''
 
   const recent = useMemo(() => recentFoods(S, today), [S, today])
-  const local = useMemo(() => searchLocal(S, query, L), [S, query, L])
+  const local = useMemo(() => searchLocal(S, query, L, query ? null : cat), [S, query, L, cat])
 
   const pick = food => portionSheet({ date, meal, food, last: lastPortionOf(useStore.getState().S, food), onDone: () => setAdded(n => n + 1) })
   const pickRecent = row => {
@@ -377,7 +378,8 @@ function AddFood({ date, meal: meal0, close }) {
   }
 
   const editMine = f => foodFormSheet({ food: f })
-  const basics = query || allBasics ? local.basics : local.basics.slice(0, 12)
+  // a shelf chosen shows all of it; the whole list, a first screenful until asked for more
+  const basics = query || allBasics || cat ? local.basics : local.basics.slice(0, 12)
   const onlineHere = online.q === query && online.state !== 'idle'
 
   return <>
@@ -424,10 +426,15 @@ function AddFood({ date, meal: meal0, close }) {
 
     {basics.length > 0 && <div className="sect">
       <span className="sect-t">{t('Everyday foods')}</span>
+      {!query && <div className="chips food-cats" role="tablist" aria-label={t('Food groups')}>
+        <button role="tab" aria-selected={!cat} className={'chip nocap' + (!cat ? ' on' : '')} onClick={() => setCat(null)}>{t('All')}</button>
+        {basicCats(L).map(c => <button key={c.id} role="tab" aria-selected={cat === c.id} className={'chip nocap' + (cat === c.id ? ' on' : '')}
+          onClick={() => setCat(cat === c.id ? null : c.id)}>{c.name}</button>)}
+      </div>}
       <div className="sect-b">
         {basics.map(f => <FoodRow key={f.id} food={f} sub={per100Line(f)} onClick={() => pick(f)} />)}
       </div>
-      {!query && !allBasics && local.basics.length > basics.length && <div className="row" style={{ justifyContent: 'center', marginTop: 6 }}>
+      {!query && !allBasics && !cat && local.basics.length > basics.length && <div className="row" style={{ justifyContent: 'center', marginTop: 6 }}>
         <Button size="sm" variant="ghost" onClick={() => setAllBasics(true)}>{t('Show all {0}', local.basics.length)}</Button>
       </div>}
     </div>}
