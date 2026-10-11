@@ -23,6 +23,8 @@ permissions:
 
 jobs:
   build:
+    # The upstream project's own publishing: a fork has nowhere to publish to.
+    if: github.repository == 'DuarteSantos8/openGym'
     runs-on: ubuntu-latest
     strategy:
       matrix:

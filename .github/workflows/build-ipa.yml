@@ -1,0 +1,79 @@
+# Builds an unsigned openGym .ipa for sideloading (Sideloadly, AltStore, SideStore).
+# Same steps as the build:ios job in .gitlab-ci.yml, run on a GitHub-hosted macOS runner
+# (free in a public repository). The sideloader signs the app with your own Apple ID.
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  # every change to the app on main builds a fresh .ipa
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/build-ipa.yml'
+
+permissions:
+  contents: read
+
+env:
+  # A bundle ID of your own, so signing with a free Apple ID does not fail with
+  # "bundle identifier not available" if the original one is already registered.
+  BUNDLE_ID: ro.irazvancm.opengym
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the mobile bundle (cap sync also runs pod install)
+        working-directory: frontend
+        run: npm run build:mobile
+
+      - name: Archive without code signing
+        working-directory: frontend/ios/App
+        run: |
+          set -euo pipefail
+          VER="$(node -p "require('../../package.json').version")"
+          BUILD="$(sed -n 's/^ *versionCode \([0-9]*\).*/\1/p' ../../android/app/build.gradle | sed -n 1p)"
+          xcodebuild -quiet \
+            -workspace App.xcworkspace -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/App.xcarchive" \
+            MARKETING_VERSION="$VER" CURRENT_PROJECT_VERSION="${BUILD:-1}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            archive
+          echo "IPA_NAME=openGym-$VER-unsigned.ipa" >> "$GITHUB_ENV"
+
+      - name: Package the .ipa
+        working-directory: frontend/ios/App
+        run: |
+          set -euo pipefail
+          APP=build/App.xcarchive/Products/Applications/App.app
+          test -f "$APP/App" || { echo "App binary missing from the archive" >&2; exit 1; }
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Info.plist"
+          # An .ipa is a zip with the .app under Payload/.
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry "$GITHUB_WORKSPACE/$IPA_NAME" Payload
+          cd "$GITHUB_WORKSPACE"
+          unzip -l "$IPA_NAME" | grep -q "Payload/App.app/App$"
+          shasum -a 256 "$IPA_NAME"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.IPA_NAME }}
+          archive: false
+          retention-days: 14
+          if-no-files-found: error
