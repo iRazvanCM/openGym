@@ -2334,3 +2334,196 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .setup-sum .dim{font-size:12px}
 .setup-time{width:auto;flex:none;padding:6px 8px;background:var(--surface-2);font-size:15px}
 .setup-foot{margin:16px 0 8px}
+
+
+/* ===================================================================== liquid glass === */
+/* The iOS 26 look: controls float over the content as glass — translucent and blurred, a bright
+   rim where the light catches the edge, a soft shadow under them — in capsule shapes, with the
+   colour coming from the content and the system colours. These rules restyle the controls the
+   app already has; nothing moves in the markup. Blur is spent only where something floats over
+   content that scrolls (the tab bar, sheets, dialogs, the toast): a control sitting on a card gets
+   the glass fill, rim and shadow without it, which looks the same there and costs nothing to
+   scroll. Every blurred surface falls back to an opaque fill where the WebView has no
+   backdrop-filter (the @supports block at the end). */
+:root{
+  --glass:rgba(38,38,42,.6);
+  --glass-strong:rgba(72,72,78,.66);
+  --glass-sheet:rgba(16,16,19,.93);
+  --glass-rim:rgba(255,255,255,.15);
+  --glass-hi:rgba(255,255,255,.14);
+  --glass-edge:rgba(255,255,255,.05);
+  --glass-shade:0 14px 32px -12px rgba(0,0,0,.7),0 2px 6px rgba(0,0,0,.3);
+  --glass-blur:saturate(180%) blur(16px);
+  --seg-thumb:#636366;
+  --sw-off:rgba(120,120,128,.32);
+  --r-card:20px;
+}
+:root[data-theme="light"]{
+  --glass:rgba(255,255,255,.64);
+  --glass-strong:rgba(255,255,255,.86);
+  --glass-sheet:rgba(250,250,252,.94);
+  --glass-rim:rgba(255,255,255,.9);
+  --glass-hi:rgba(255,255,255,.9);
+  --glass-edge:rgba(0,0,0,.06);
+  --glass-shade:0 16px 36px -14px rgba(20,30,55,.32),0 2px 6px rgba(20,30,55,.08);
+  --seg-thumb:#fff;
+  --sw-off:rgba(120,120,128,.16);
+}
+
+/* the tab bar: a glass capsule floating over the page, the open tab a lens inside it */
+#tabbar{
+  padding:5px 4px;border:0;border-radius:32px;
+  background:var(--glass);
+  -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  box-shadow:var(--glass-shade),0 0 0 .5px var(--glass-edge),inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--glass-rim);
+}
+:root[data-theme="light"] #tabbar{background:var(--glass)}
+/* on a phone it stands off the edges and rides over the home indicator's inset, as on iOS 26 */
+@media (max-width:999.98px){
+  #tabbar{inset-inline-start:12px;inset-inline-end:12px;bottom:max(10px,calc(var(--sab) - 10px))}
+}
+#tabbar button{padding:6px 0 5px;border-radius:26px;transition:color var(--fast),background var(--fast)}
+#tabbar button.on:not(.start){background:color-mix(in srgb,var(--label) 8%,transparent)}
+#tabbar button.start{margin-top:-22px}
+#tabbar button.start .cir{
+  background:radial-gradient(120% 120% at 30% 15%,color-mix(in srgb,var(--acc) 45%,#fff) 0%,var(--acc) 50%,color-mix(in srgb,var(--acc) 82%,#000) 100%);
+  box-shadow:inset 0 1.5px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(0,0,0,.16),
+    0 0 0 4px var(--glass-strong),0 0 0 4.5px var(--glass-edge),0 12px 26px -10px color-mix(in srgb,var(--acc) 75%,transparent);
+}
+#tabbar button.start.rec .cir{background:radial-gradient(120% 120% at 30% 15%,#ffd08a 0%,var(--orange) 50%,#c76b00 100%)}
+.tab-dot{box-shadow:0 0 0 2px var(--surface)}
+/* the page fades out under the floating bar, so what scrolls behind it never fights its labels */
+body:has(#tabbar)::after{
+  content:'';position:fixed;inset-inline-start:0;inset-inline-end:0;bottom:0;z-index:49;pointer-events:none;
+  height:calc(var(--sab) + 84px);
+  background:linear-gradient(to bottom,transparent,color-mix(in srgb,var(--bg) 60%,transparent) 75%);
+}
+
+/* round glass buttons */
+.iconbtn{
+  background:var(--glass-strong);
+  box-shadow:0 6px 14px -9px rgba(0,0,0,.45),0 0 0 .5px var(--glass-edge),inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--glass-rim);
+}
+.iconbtn:active{background:var(--glass)}
+
+/* capsules everywhere; the filled button lit from above */
+.btn,.btn.sm,.btn.xs{border-radius:999px}
+.btn{box-shadow:inset 0 1px 0 var(--glass-hi)}
+.btn.ghost,.btn.plain{box-shadow:none}
+.btn.primary{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--acc) 80%,#fff),var(--acc) 60%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -1px 0 rgba(0,0,0,.08),0 12px 24px -14px color-mix(in srgb,var(--acc) 85%,transparent);
+}
+.btn.primary:active{background:var(--acc-2)}
+.btn.tinted{box-shadow:inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px color-mix(in srgb,var(--acc) 26%,transparent)}
+
+/* the switch: green as on iOS, a capsule thumb that swells into a clear glass lens while it is
+   held — the track's colour shows through it */
+.sw{width:58px;height:32px;padding:2px;background:var(--sw-off);transition:background var(--med) var(--ease)}
+.sw .knob{
+  width:36px;height:28px;border-radius:14px;
+  box-shadow:0 3px 8px rgba(0,0,0,.16),0 1px 1px rgba(0,0,0,.1);
+  transition:transform var(--med) var(--ease),width var(--fast) var(--ease),height var(--fast) var(--ease),background var(--fast),box-shadow var(--fast);
+}
+.sw.on{background:var(--green)}
+.sw.on .knob{transform:translateX(18px);box-shadow:0 3px 8px rgba(0,0,0,.16),0 1px 1px rgba(0,0,0,.1)}
+.sw:active .knob{
+  width:44px;height:36px;border-radius:18px;background:rgba(255,255,255,.28);
+  -webkit-backdrop-filter:blur(1.5px) saturate(170%);backdrop-filter:blur(1.5px) saturate(170%);
+  box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.95),inset 0 2px 3px rgba(255,255,255,.6),inset 0 -3px 8px rgba(0,0,0,.1),0 10px 22px -8px rgba(0,0,0,.35);
+}
+.sw.on:active .knob{transform:translateX(10px)}
+[dir="rtl"] .sw.on .knob{transform:translateX(-18px)}
+[dir="rtl"] .sw.on:active .knob{transform:translateX(-10px)}
+
+/* the slider: a capsule thumb that turns to the same lens while it is dragged */
+.sld-track{height:6px;background:color-mix(in srgb,var(--label) 14%,transparent)}
+.sld-fill{background:linear-gradient(90deg,color-mix(in srgb,var(--acc) 70%,#fff),var(--acc))}
+.sld-knob{
+  width:38px;height:24px;border-radius:12px;
+  box-shadow:0 3px 9px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.05);
+  transition:transform var(--fast) var(--ease),width var(--fast) var(--ease),height var(--fast) var(--ease),background var(--fast),box-shadow var(--fast);
+}
+.sld.dragging .sld-knob{
+  transform:translateX(-50%);width:50px;height:32px;border-radius:16px;background:rgba(255,255,255,.26);
+  -webkit-backdrop-filter:blur(1.5px) saturate(170%);backdrop-filter:blur(1.5px) saturate(170%);
+  box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.95),inset 0 2px 3px rgba(255,255,255,.6),inset 0 -3px 8px rgba(0,0,0,.1),0 10px 22px -8px rgba(0,0,0,.35);
+}
+[dir="rtl"] .sld.dragging .sld-knob{transform:translateX(50%)}
+
+/* segmented controls: a capsule track, the chosen segment a lit capsule inside it */
+.seg{border-radius:999px;padding:3px}
+.seg-sel{
+  top:3px;bottom:3px;inset-inline-start:3px;width:calc((100% - 6px)/var(--n));border-radius:999px;
+  background:var(--seg-thumb);
+  box-shadow:0 4px 12px -5px rgba(0,0,0,.3),0 0 0 .5px var(--glass-edge),inset 0 1px 0 var(--glass-hi);
+}
+:root[data-theme="light"] .seg-sel{background:var(--seg-thumb)}
+.seg button{border-radius:999px}
+
+/* chips: pills with a rim; the chosen one filled and lit */
+.chip{box-shadow:inset 0 0 0 .5px var(--glass-rim)}
+:root[data-theme="light"] .chip{box-shadow:0 1px 2px rgba(20,30,55,.06),0 0 0 .5px var(--glass-edge)}
+.chip.on,.food-meals .chip.on{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--acc) 80%,#fff),var(--acc) 62%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 6px 14px -8px color-mix(in srgb,var(--acc) 85%,transparent);
+}
+
+/* fields: the search fields are capsules, as on iOS 26 */
+.search .input,.searchf .field{border-radius:999px}
+
+/* cards: rounder, lifted a little off the page in light mode */
+:root[data-theme="light"] .card,:root[data-theme="light"] .sect-b{box-shadow:0 1px 2px rgba(20,30,55,.04),0 8px 24px -18px rgba(20,30,55,.22)}
+
+/* the day switcher on the log and the food diary: a glass capsule */
+.dl-day-m{border-radius:999px;padding:0 16px;background:var(--glass-strong);box-shadow:0 6px 14px -10px rgba(0,0,0,.4),0 0 0 .5px var(--glass-edge),inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--glass-rim)}
+
+/* "Add food": the plus in a round tinted lens */
+.food-add .icn{
+  font-size:28px;padding:7px;box-sizing:border-box;border-radius:50%;--icon-stroke:2.4;
+  background:var(--acc-soft);box-shadow:inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--acc-line);
+}
+.food-add{padding:8px 0 6px;gap:10px}
+
+/* sheets and dialogs: glass over the page, nearly opaque so what they hold stays legible (on iOS 26
+   it is the controls that are clear glass, not the content) */
+.mback{background:rgba(0,0,0,.32)}
+.sheet{
+  border-radius:32px 32px 0 0;background:var(--glass-sheet);
+  -webkit-backdrop-filter:saturate(180%) blur(24px);backdrop-filter:saturate(180%) blur(24px);
+  box-shadow:0 -16px 44px -20px rgba(0,0,0,.4),inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--glass-rim);
+}
+:root[data-theme="light"] .sheet{background:var(--glass-sheet)}
+/* A sheet with a search is a full-height list (the food and exercise pickers): opaque, as a
+   full-height sheet is on iOS 26, so the sticky search hides the rows scrolling under it. The
+   search's backdrop also reaches up over the sheet's top padding and out to its edges: a row
+   used to show through the 8px strip above the stuck field. */
+.sheet:has(.picker-search){background:var(--bg-el)}
+:root[data-theme="light"] .sheet:has(.picker-search){background:var(--bg)}
+.picker-search::before{content:'';position:absolute;inset:-8px -18px 0;z-index:-1;background:inherit}
+.center{
+  border-radius:28px;background:var(--glass-sheet);
+  -webkit-backdrop-filter:saturate(180%) blur(24px);backdrop-filter:saturate(180%) blur(24px);
+  box-shadow:0 24px 60px -16px rgba(0,0,0,.45),inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--glass-rim);
+}
+:root[data-theme="light"] .center{background:var(--glass-sheet)}
+body #toast{box-shadow:var(--glass-shade),inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--glass-rim)}
+/* the rest bar: the same rim, and rounder — a capsule-ended card over the page */
+#timer{border-radius:26px;box-shadow:0 12px 34px -8px rgba(0,0,0,.55),inset 0 1px 0 var(--glass-hi),inset 0 0 0 .5px var(--glass-rim)}
+@media (max-width:999.98px){
+  body.no-tabbar #timer{border-radius:30px 30px 0 0}
+}
+
+/* progress in Apple's colours: the day's calories in a blue-to-violet sweep, each macro its own */
+.food-bar,.cut-bar{background:color-mix(in srgb,var(--label) 10%,transparent)}
+.food-bar>span:not(.good):not(.over),.cut-bar>span{background:linear-gradient(90deg,#5ac8fa,#0a84ff 42%,#5e5ce6 78%,#bf5af2)}
+.food-bar>span.good{background:linear-gradient(90deg,#30d158,#34c759)}
+.food-bar>span.over{background:linear-gradient(90deg,#ff9f0a,#ff375f)}
+.food-mac:nth-child(1) .food-bar>span:not(.good):not(.over){background:linear-gradient(90deg,#64d2ff,#0a84ff)}
+.food-mac:nth-child(2) .food-bar>span:not(.good):not(.over){background:linear-gradient(90deg,#ffd60a,#ff9f0a)}
+.food-mac:nth-child(3) .food-bar>span:not(.good):not(.over){background:linear-gradient(90deg,#ff6482,#ff375f)}
+
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  #tabbar,:root[data-theme="light"] #tabbar{background:var(--bg-el)}
+  .sheet,:root[data-theme="light"] .sheet,.center,:root[data-theme="light"] .center{background:var(--bg-el)}
+}
