@@ -181,6 +181,12 @@ const P = {
   fingerprint: <><path d="M5.2 9.2a7.8 7.8 0 0 1 13.6 0" /><path d="M4.8 14.4v-1.2a7.2 7.2 0 0 1 .4-2.4M18.8 9.2a7.6 7.6 0 0 1 .4 2.6v3" /><path d="M8.6 20a9.6 9.6 0 0 1-1.2-4.6v-2.2a4.6 4.6 0 0 1 9.2 0v1.6" /><path d="M12 13v2.6a9.4 9.4 0 0 0 1.6 5" /><path d="M16.6 18.2v.6c0 .6.1 1.2.2 1.6" /></>,
   // how a message sounds (the nudge tone)
   chat: <path d="M5.6 4.8h12.8a2.2 2.2 0 0 1 2.2 2.2v8a2.2 2.2 0 0 1-2.2 2.2H11l-4.4 3.4v-3.4h-1a2.2 2.2 0 0 1-2.2-2.2V7a2.2 2.2 0 0 1 2.2-2.2Z" />,
+
+  /* ---- the food diary ---- */
+  // the Food tab: a fork and a knife
+  utensils: <><path d="M6.4 3.6v4.6a2.6 2.6 0 0 0 5.2 0V3.6M9 3.6v16.8" /><path d="M17.6 20.4V3.6c-2 1.1-3.2 3.6-3.2 7 0 1.6.9 2.6 3.2 2.6" /></>,
+  // scan a product's barcode (qr stays the gym card's code)
+  barcode: <path d="M3.6 7.6V5.8a2.2 2.2 0 0 1 2.2-2.2h1.8M16.4 3.6h1.8a2.2 2.2 0 0 1 2.2 2.2v1.8M20.4 16.4v1.8a2.2 2.2 0 0 1-2.2 2.2h-1.8M7.6 20.4H5.8a2.2 2.2 0 0 1-2.2-2.2v-1.8M7.6 8v8M10.4 8v8M13 8v5.6M16.4 8v8" />,
 }
 
 export const ICON_NAMES = Object.keys(P)

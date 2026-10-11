@@ -248,10 +248,92 @@ describe('CSV export', () => {
     const S = cutState({ days: 3 })
     S.dailyLog[1].note = 'pizza, "cheat"'
     const csv = dailyLogCSV(S).trim().split('\n')
-    expect(csv[0]).toBe('date,weight_kg,trend_kg,kcal,protein_g,steps,cardio_min,sleep_h,alcohol,gym,energy_1_5,hunger_1_5,waist_cm,note')
+    expect(csv[0]).toBe('date,weight_kg,trend_kg,kcal,protein_g,carbs_g,fat_g,food_items,steps,cardio_min,sleep_h,alcohol,gym,energy_1_5,hunger_1_5,waist_cm,note')
     expect(csv).toHaveLength(4)
     expect(csv[2]).toContain('"pizza, ""cheat"""')
     expect(csv[1].split(',')[3]).toBe('2000')
-    expect(csv[1].split(',')[8]).toBe('no')
+    expect(csv[1].split(',')[11]).toBe('no')
+  })
+
+  it('takes a day with a food diary from the diary, with its carbs and fat', () => {
+    const S = cutState({ days: 2 })
+    S.dailyLog[0].food = [FOOD('a', 'b', 200, 22.5, 0, 2.6), FOOD('b', 'l', 300, 7.1, 80, 0.7)]
+    const row = dailyLogCSV(S).trim().split('\n')[1].split(',')
+    expect(row.slice(3, 8)).toEqual(['1291', '66', '240', '7', '2'])
+  })
+})
+
+// A diary item: `amount` g of a food with these numbers per 100 g.
+const FOOD = (id, meal, amount, p, c, f, kcal = 4 * p + 4 * c + 9 * f) => ({ id, meal, name: id, amount, per100: { kcal, p, c, f } })
+
+describe('the food diary in the log', () => {
+  const S0 = () => cutState({ days: 21, noise: 0 })
+
+  it('keeps a day\'s food, its done mark and what Apple Health filled in', () => {
+    const e = normalizeLogEntry({ d: '2026-11-03', steps: 9000, sleep: 7, food: [FOOD('x', 'b', 100, 10, 10, 10), { junk: 1 }], done: true, hk: ['steps', 'sleep', 'kcal', 'cardio'] })
+    expect(e.food).toHaveLength(1)
+    expect(e.food[0]).toMatchObject({ kcal: 170, p: 10 })
+    expect(e.done).toBe(true)
+    expect(e.hk).toEqual(['steps', 'sleep'])   // not kcal (Health never fills it), not an empty cardio
+    expect(logHasValues(normalizeLogEntry({ d: '2026-11-03', food: [FOOD('x', 'b', 50, 1, 1, 1)] }))).toBe(true)
+    expect(normalizeLogEntry({ d: '2026-11-03', done: true }).done).toBeUndefined()   // nothing to complete
+  })
+
+  it('folds two halves of a day\'s diary into one, the later version of an item both have', () => {
+    const s = normalizeDailyLogState({ dailyLog: [
+      { d: '2026-11-04', t: 2, food: [FOOD('a', 'b', 100, 10, 0, 0), FOOD('b', 'l', 100, 20, 0, 0)], steps: 8000, hk: ['steps'] },
+      { d: '2026-11-04', t: 5, food: [FOOD('b', 'l', 200, 20, 0, 0), FOOD('c', 'd', 100, 5, 0, 0)], steps: 9000 },
+    ] })
+    expect(s.dailyLog).toHaveLength(1)
+    const e = s.dailyLog[0]
+    expect(e.food.map(it => it.id)).toEqual(['a', 'b', 'c'])
+    expect(e.food.find(it => it.id === 'b').amount).toBe(200)
+    expect(e.steps).toBe(9000)
+    expect(e.hk).toBeUndefined()   // the steps kept were typed, not Health's
+  })
+
+  it('counts the diary\'s calories and protein instead of the typed ones', () => {
+    const S = S0()
+    const d = S.dailyLog[20].d
+    S.dailyLog[19].food = [FOOD('a', 'b', 500, 30, 0, 0), FOOD('b', 'l', 400, 0, 50, 10)]   // 600 + 1160 kcal, 150 g protein
+    const sum = summarize(S, S.dailyLog[19].d, S.dailyLog[19].d, undefined, d)
+    expect(sum.kcal.avg).toBe(1760)
+    expect(sum.protein.avg).toBe(150)
+    expect(sum.carbs.avg).toBe(200)
+    expect(sum.fat.avg).toBe(40)
+    expect(sum.foodDays).toBe(1)
+    expect(sum.protein.hit).toBe(0)
+  })
+
+  it('leaves today\'s diary out of the averages until the day is marked complete', () => {
+    const S = S0()
+    const today = S.dailyLog[20].d
+    S.dailyLog[20].food = [FOOD('a', 'b', 100, 10, 50, 5)]   // breakfast only
+    expect(summarize(S, today, today, undefined, today).kcal.n).toBe(0)
+    expect(summarize(S, today, today, undefined, addDays(today, 1)).kcal.n).toBe(1)   // the next day it counts
+    S.dailyLog[20].done = true
+    expect(summarize(S, today, today, undefined, today).kcal.avg).toBe(285)
+    // the typed total of a day without a diary counts as it is
+    expect(summarize(S, S.dailyLog[19].d, today, undefined, today).kcal.n).toBe(2)
+  })
+
+  it('works out maintenance from the diary\'s calories, without today\'s half-eaten day', () => {
+    const S = cutState({ days: 35, noise: 0.3, intake: 2000 })
+    const today = lastDay(S)
+    const before = expenditure(S, today)
+    S.dailyLog.forEach(e => { e.food = [FOOD('m', 'l', 1000, 0, 50, 0)]; e.kcal = 999 })   // 2,000 kcal from food
+    S.dailyLog[S.dailyLog.length - 1].food = [FOOD('m', 'b', 100, 0, 50, 0)]               // today: 200 so far
+    const after = expenditure(S, today)
+    expect(after.ready).toBe(true)
+    expect(after.intake).toBe(2000)
+    expect(after.logged).toBe(before.logged - 1)
+    expect(Math.abs(after.tdee - before.tdee)).toBeLessThanOrEqual(20)
+  })
+
+  it('leaves carbs to what calories, protein and fat leave', () => {
+    expect(cutOf({}).fat).toBe(60)
+    expect(cutOf({}).carbs).toBe(190)
+    expect(cutOf({ cut: { kcal: 1900 } }).carbs).toBe(165)
+    expect(cutOf({ cut: { kcal: 1000, protein: 200, fat: 80 } }).carbs).toBe(0)
   })
 })

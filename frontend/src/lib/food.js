@@ -6,15 +6,23 @@
 // the totals typed into the daily log are for days without a diary. An item is:
 //
 //   { id, meal: 'b' | 'l' | 'd' | 's', name, brand, code, src: 'off' | 'basic' | 'custom' | 'quick',
-//     ref, amount, unit: 'g' | 'ml', per100: { kcal, p, c, f, fib? }, kcal, p, c, f, at }
+//     ref, amount, unit: 'g' | 'ml', sv?, per100: { kcal, p, c, f, fib? }, kcal, p, c, f, at }
 //
 // `per100` is what the label says per 100 g (or 100 ml); the item's own kcal/p/c/f are the portion,
 // worked out when it was logged and kept, so a food changed later never rewrites a past day.
-// A quick add has no per100 and no amount: just the numbers typed.
+// `unit` is only how the amount is shown: a gram and a millilitre count the same (water-like),
+// the way every food diary treats them. `sv` is the number of servings when it was logged as
+// servings. A quick add has no per100 and no amount: just the numbers typed.
 //
-// The foods a person keeps — scanned products, their own recipes and custom foods — are S.foods:
-// [{ id, name, brand, code, unit, per100, serving: { label, amount }, src, at }].
-import { BASIC_FOODS } from './food-basics.js'
+// The foods a person keeps — products scanned or found online, and foods of their own — are
+// S.foods: [{ id, name, brand, code, unit, per100, serving: { label, amount }, pack, src, at }].
+// `ref` on a diary item points back to where it came from: 'basic:…' (lib/food-basics.js),
+// 'off:<barcode>' or a food's id in S.foods, so the portion screen can offer that food's serving.
+//
+// Two devices that change the same day's diary at once keep the day saved last, as for every
+// daily-log field (lib/sync-merge.js: one entry per day, the later `t` wins).
+import { BASIC_FOODS, BASIC_BY_ID } from './food-basics.js'
+import { isoOf } from './format.js'
 
 export const MEALS = ['b', 'l', 'd', 's']
 export const MEAL_NAMES = { b: 'Breakfast', l: 'Lunch', d: 'Dinner', s: 'Snacks' }
@@ -74,6 +82,9 @@ export function normalizeFoodItem(raw) {
     item.per100 = per100
     item.amount = r1(amount)
     Object.assign(item, portion(per100, amount))
+    // logged as servings ("2 eggs"): how many, for the diary to say so; the amount is what counts
+    const sv = num(raw.sv, 100)
+    if (sv != null && sv > 0) item.sv = Math.round(sv * 100) / 100
   } else {
     // a quick add, or an item whose label numbers went missing: its own totals stand
     item.src = item.src === 'quick' || !per100 ? 'quick' : item.src
@@ -103,7 +114,13 @@ const ZERO = () => ({ kcal: 0, p: 0, c: 0, f: 0, n: 0 })
 /** What a list of items adds up to: { kcal, p, c, f, n }. */
 export function foodTotals(items) {
   const t = ZERO()
-  for (const it of items || []) { t.kcal += it.kcal || 0; t.p += it.p || 0; t.c += it.c || 0; t.f += it.f || 0; t.n++ }
+  for (const raw of items || []) {
+    if (!raw) continue
+    // an item as stored carries its portion; one that never went through normalizeFoodItem (an
+    // imported file) is worked out from its label
+    const it = raw.kcal == null && raw.per100 && raw.amount > 0 ? portion(raw.per100, raw.amount) : raw
+    t.kcal += it.kcal || 0; t.p += it.p || 0; t.c += it.c || 0; t.f += it.f || 0; t.n++
+  }
   t.p = r1(t.p); t.c = r1(t.c); t.f = r1(t.f)
   return t
 }
@@ -118,11 +135,10 @@ const entryOf = (S, iso) => (Array.isArray(S?.dailyLog) ? S.dailyLog : []).find(
 export const dayFood = (S, iso) => entryOf(S, iso)?.food || []
 
 /**
- * A day's calories and macros: the food diary's totals when the day has any food, else the
- * calories and protein typed into the daily log. `src` says which: 'food', 'log' or null.
+ * A daily-log entry's calories and macros: the food diary's totals when the day has any food,
+ * else the calories and protein typed into the daily log. `src` says which: 'food', 'log' or null.
  */
-export function dayNutrition(S, iso) {
-  const e = entryOf(S, iso)
+export function entryNutrition(e) {
   if (e?.food?.length) {
     const t = foodTotals(e.food)
     return { kcal: t.kcal, protein: t.p, carbs: t.c, fat: t.f, n: t.n, src: 'food' }
@@ -130,6 +146,9 @@ export function dayNutrition(S, iso) {
   if (e && (e.kcal != null || e.protein != null)) return { kcal: e.kcal ?? null, protein: e.protein ?? null, carbs: null, fat: null, n: 0, src: 'log' }
   return { kcal: null, protein: null, carbs: null, fat: null, n: 0, src: null }
 }
+
+/** A day's calories and macros (entryNutrition of that day's entry). */
+export const dayNutrition = (S, iso) => entryNutrition(entryOf(S, iso))
 
 /* ------------------------------------------------------------------------- editing -- */
 
@@ -199,6 +218,8 @@ export function normalizeFood(raw) {
   }
   const amount = num(raw.serving?.amount, 5000)
   if (amount && amount > 0) f.serving = { label: cleanText(raw.serving.label, 40) || '', amount: r1(amount) }
+  const pack = num(raw.pack, 5000)
+  if (pack && pack > 0) f.pack = r1(pack)
   return f
 }
 
@@ -219,7 +240,7 @@ export const myFoodByCode = (S, code) => (S?.foods || []).find(f => f.code && f.
 
 /* -------------------------------------------------------------------------- search -- */
 
-export const foldText = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+export const foldText = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 /** Does every word of the query start a word of the text (accents and case aside)? */
 export function matches(text, query) {
@@ -227,13 +248,39 @@ export function matches(text, query) {
   return foldText(query).split(/\s+/).filter(Boolean).every(q => words.some(w => w.startsWith(q)))
 }
 
+/**
+ * The language food names are shown in: Romanian when the app or the phone is set to it, else
+ * English. The built-in foods carry both, and a search matches either.
+ */
+export function foodLang(appLang, languages = (typeof navigator !== 'undefined' && (navigator.languages || [navigator.language])) || []) {
+  if (appLang === 'ro') return 'ro'
+  return [].concat(languages).some(l => /^ro\b/i.test(String(l || ''))) ? 'ro' : 'en'
+}
+
+const basicAsFood = (b, lang) => ({
+  id: b.id, ref: b.id, src: 'basic', name: lang === 'ro' ? b.ro : b.en, alt: lang === 'ro' ? b.en : b.ro, brand: '', code: '',
+  unit: b.unit, per100: b.per100,
+  ...(b.serving ? { serving: { label: lang === 'ro' ? b.serving.ro : b.serving.en, amount: b.serving.amount } } : {}),
+})
+
 /** The built-in foods as foods, named in `lang` ('ro' or anything else for English). */
 export function basicFoods(lang = 'en') {
-  return BASIC_FOODS.map(b => ({
-    id: b.id, ref: b.id, src: 'basic', name: lang === 'ro' ? b.ro : b.en, alt: lang === 'ro' ? b.en : b.ro, brand: '', code: '',
-    unit: b.unit, per100: b.per100,
-    ...(b.serving ? { serving: { label: lang === 'ro' ? b.serving.ro : b.serving.en, amount: b.serving.amount } } : {}),
-  }))
+  return BASIC_FOODS.map(b => basicAsFood(b, lang))
+}
+
+/**
+ * The whole food behind a diary item or a recent row — with its serving and pack size, which an
+ * item does not carry: the built-in food, the kept one with that barcode or id, or else the item
+ * itself as a food (its own numbers per 100).
+ */
+export function foodFor(S, it, lang = 'en') {
+  if (!it) return null
+  const ref = String(it.ref || '')
+  if (ref.startsWith('basic:') && BASIC_BY_ID.has(ref)) return basicAsFood(BASIC_BY_ID.get(ref), lang)
+  const mine = (it.code && myFoodByCode(S, it.code)) || (S?.foods || []).find(f => f.id === ref) || null
+  if (mine) return mine
+  if (!it.per100) return null
+  return { id: ref || null, ref, src: it.src === 'off' ? 'off' : 'custom', name: it.name, brand: it.brand || '', code: it.code || '', unit: it.unit || 'g', per100: it.per100 }
 }
 
 /**
@@ -241,7 +288,7 @@ export function basicFoods(lang = 'en') {
  * custom food counts once), each with the amount and meal it was last logged with.
  */
 export function recentFoods(S, today, { days = 45, limit = 40 } = {}) {
-  const from = (() => { const d = new Date(today + 'T12:00:00'); d.setDate(d.getDate() - days); return d.toISOString().slice(0, 10) })()
+  const from = (() => { const d = new Date(today + 'T12:00:00'); d.setDate(d.getDate() - days); return isoOf(d) })()
   const rows = new Map()
   const entries = (S?.dailyLog || []).filter(e => e && e.d >= from && e.d <= today && e.food?.length).sort((a, b) => b.d.localeCompare(a.d))
   for (const e of entries) {
@@ -249,10 +296,28 @@ export function recentFoods(S, today, { days = 45, limit = 40 } = {}) {
       if (!it.per100) continue
       const key = it.code ? 'code:' + it.code : it.ref ? 'ref:' + it.ref : 'name:' + foldText(it.name + '|' + it.brand)
       if (rows.has(key)) { rows.get(key).times++; continue }
-      rows.set(key, { key, name: it.name, brand: it.brand, code: it.code, src: it.src, ref: it.ref, unit: it.unit, per100: it.per100, lastAmount: it.amount, lastMeal: it.meal, lastDay: e.d, times: 1 })
+      rows.set(key, { key, name: it.name, brand: it.brand, code: it.code, src: it.src, ref: it.ref, unit: it.unit, per100: it.per100, lastAmount: it.amount, lastSv: it.sv ?? null, lastMeal: it.meal, lastDay: e.d, times: 1 })
     }
   }
   return [...rows.values()].slice(0, limit)
+}
+
+/**
+ * How much of a food was had the last time it was logged — { amount, sv, unit, meal, d } — or null.
+ * The same barcode, the same built-in or kept food, or else the same name and brand.
+ */
+export function lastPortionOf(S, food) {
+  if (!food) return null
+  const code = food.code || ''
+  const ref = food.ref || food.id || ''
+  const name = foldText((food.name || '') + '|' + (food.brand || ''))
+  const same = it => it.per100 && it.amount > 0 && ((code && it.code === code) || (ref && it.ref === ref) || foldText(it.name + '|' + (it.brand || '')) === name)
+  const entries = (S?.dailyLog || []).filter(e => e?.food?.length).sort((a, b) => b.d.localeCompare(a.d))
+  for (const e of entries) {
+    const hit = [...e.food].sort((a, b) => (b.at || 0) - (a.at || 0)).find(same)
+    if (hit) return { amount: hit.amount, sv: hit.sv ?? null, unit: hit.unit, meal: hit.meal, d: e.d }
+  }
+  return null
 }
 
 /** My foods and the built-in ones that match a query, mine first. */

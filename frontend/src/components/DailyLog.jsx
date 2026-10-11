@@ -3,8 +3,11 @@
 // One sheet for everything a day of a cut is judged by — weight, calories, protein, steps,
 // cardio, sleep, alcohol, training, how hungry and how flat it felt — so logging takes one stop
 // instead of five. Weight is written to S.bodyweight and the waist to S.measurements, the lists
-// the rest of the app already reads; everything else goes to S.dailyLog (lib/cut.js). Nothing here
-// imports sheets.jsx: Home's tests mock that module, and the card renders inside Home.
+// the rest of the app already reads; everything else goes to S.dailyLog (lib/cut.js). A day with a
+// food diary (views/Food.jsx) shows its calories and protein from there instead of two fields, and
+// saving the form keeps the diary, its Complete mark and what Apple Health filled in untouched —
+// except a field typed over, which is the user's from then on. Nothing here imports sheets.jsx:
+// Home's tests mock that module, and the card renders inside Home.
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
@@ -14,6 +17,7 @@ import {
   normalizeLogEntry, workoutsOn,
 } from '../lib/cut.js'
 import { normalizeMeasurementsState, measurementEntryHasValues, emptyMeasurement, toMeasurementDisplay, fromMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
+import { dayNutrition } from '../lib/food.js'
 import { fmtNum, fmtDate, todayISO } from '../lib/format.js'
 import { t, dateLocale } from '../lib/i18n.js'
 import { tappable } from '../lib/use-sheet-keyboard.js'
@@ -52,7 +56,11 @@ const SCALE_LABELS = {
 /* ================================================================ the sheet == */
 
 function DayForm({ date, close }) {
+  const nav = useNavigate()
   const S = useStore(s => s.S)
+  const nut = dayNutrition(S, date)
+  const fromFood = nut.src === 'food'
+  const openDiary = () => { close(); nav('/food?d=' + date) }
   const cut = cutOf(S)
   const unit = S.unit === 'lb' ? 'lb' : 'kg'
   const lenUnit = measurementUnit(S.unit)
@@ -92,7 +100,11 @@ function DayForm({ date, close }) {
       cardio: v.cardio && v.cardio !== fromWorkouts ? v.cardio : null,
       sleep: v.sleep, alcohol: !v.dry, gym: workouts.length ? null : (v.gym ? true : null),
       energy: v.energy, hunger: v.hunger, note: v.note,
+      food: entry?.food, done: entry?.done,
     })
+    // What Apple Health filled in stays its own only while it is left as it was.
+    const hk = (entry?.hk || []).filter(k => next[k] != null && next[k] === entry[k])
+    if (hk.length) next.hk = hk
     useStore.getState().update(s => {
       s.dailyLog = (Array.isArray(s.dailyLog) ? s.dailyLog : []).filter(e => e?.d !== date)
       if (logHasValues(next)) s.dailyLog.push(next)
@@ -118,7 +130,10 @@ function DayForm({ date, close }) {
   }
 
   const remove = () => {
-    useStore.getState().update(s => { s.dailyLog = (s.dailyLog || []).filter(e => e?.d !== date) })
+    useStore.getState().update(s => {
+      // the food diary is not this form's to clear: a day with one keeps it
+      s.dailyLog = (s.dailyLog || []).map(e => (e?.d !== date ? e : e.food?.length ? { d: e.d, t: Date.now(), food: e.food, ...(e.done ? { done: true } : {}) } : null)).filter(Boolean)
+    })
     toast(t('Log removed'))
     close()
   }
@@ -142,11 +157,19 @@ function DayForm({ date, close }) {
   </div>
 
   return <>
+    {fromFood && <div className="dl-food" {...tappable(openDiary)}>
+      <span className="lrow-i" style={{ '--tint': 'var(--green)' }}><Icon name="utensils" /></span>
+      <div className="dl-food-m">
+        <b>{fmtInt(nut.kcal)} kcal · {fmtInt(nut.protein)} g {t('protein')}</b>
+        <span>{t('From the food diary')}</span>
+      </div>
+      <Icon name="chevronRight" className="chev" />
+    </div>}
     <div className="measure-form dl-form">
       {field('w', t('Weight'), unit, { decimal: true })}
       {field('waist', t('Waist'), lenUnit, { decimal: true, hint: t('weekly') })}
-      {field('kcal', t('Calories'), 'kcal', { hint: fmtInt(cut.kcal) })}
-      {field('protein', t('Protein'), 'g', { hint: fmtInt(cut.protein) })}
+      {!fromFood && field('kcal', t('Calories'), 'kcal', { hint: fmtInt(cut.kcal) })}
+      {!fromFood && field('protein', t('Protein'), 'g', { hint: fmtInt(cut.protein) })}
       {field('steps', t('Steps'), '', { hint: fmtInt(cut.steps) })}
       {field('cardio', t('Cardio'), t('min'), { hint: fmtInt(cut.cardio) })}
       {field('sleep', t('Sleep'), t('h'), { decimal: true, hint: fmtNum(cut.sleep) })}
@@ -172,6 +195,7 @@ function DayForm({ date, close }) {
     {scale('hunger', t('Hunger'))}
 
     <TextField value={v.note} maxLength={500} placeholder={t('Note (optional)')} onChange={e => set('note', e.target.value)} style={{ marginTop: 12 }} />
+    {!fromFood && <button className="dl-diary-link" onClick={openDiary}><Icon name="utensils" />{t('Log the food item by item instead')}</button>}
     <div style={{ height: 14 }} />
     <Button variant="primary" onClick={save}>{t('Save')}</Button>
     {entry && <><div style={{ height: 6 }} /><Button variant="ghost" className="dim" onClick={remove}>{t('Clear this day\'s log')}</Button></>}
@@ -212,6 +236,9 @@ export function dailyLogSheet(iso) {
 /** The day's numbers as small pills, each against its target. */
 export function DayChips({ S, iso, cut = cutOf(S) }) {
   const e = logFor(S, iso) || {}
+  const nut = dayNutrition(S, iso)
+  // today's diary is still being eaten: only going over shows, not being under
+  const open = nut.src === 'food' && iso >= todayISO() && !e.done
   const cardio = e.cardio ?? (cardioMinutesOn(S, iso) || null)
   const trained = workoutsOn(S, iso).length > 0 || e.gym === true
   const bw = (S.bodyweight || []).find(b => b.d === iso)
@@ -226,8 +253,8 @@ export function DayChips({ S, iso, cut = cutOf(S) }) {
   }
   return <div className="dl-chips">
     {bw && <span className="dl-chip hit"><Icon name="scale" /><span>{fmtNum(bw.w)} {unit}</span></span>}
-    {chip('kcal', 'flame', e.kcal, cut.kcal, 'kcal', { hit: e.kcal != null && e.kcal <= cut.kcal + 100 && e.kcal >= cut.kcal - 300, over: e.kcal > cut.kcal + 100 })}
-    {chip('protein', 'bolt', e.protein, cut.protein, 'g', { hit: e.protein >= cut.protein * 0.9 })}
+    {chip('kcal', nut.src === 'food' ? 'utensils' : 'flame', nut.kcal, cut.kcal, 'kcal', { hit: !open && nut.kcal != null && nut.kcal <= cut.kcal + 100 && nut.kcal >= cut.kcal - 300, over: nut.kcal > cut.kcal + 100 })}
+    {chip('protein', 'bolt', nut.protein, cut.protein, 'g', { hit: nut.protein >= cut.protein * 0.9 })}
     {chip('steps', 'steps', e.steps, cut.steps, '', { hit: e.steps >= cut.steps })}
     {chip('cardio', 'figureRun', cardio, cut.cardio, t('min'), { hit: cardio >= cut.cardio })}
     {e.sleep != null
@@ -247,7 +274,8 @@ export function DailyLogCard() {
   const report = useMemo(() => cutReport(S, today), [S, today])
   const info = phaseInfo(report.phase)
   const unit = report.unit
-  const filled = logged ? ['kcal', 'protein', 'steps', 'sleep'].filter(k => logged[k] != null).length + (logged.alcohol != null ? 1 : 0) : 0
+  const nut = dayNutrition(S, today)
+  const filled = logged ? (nut.kcal != null ? 1 : 0) + (nut.protein != null ? 1 : 0) + ['steps', 'sleep'].filter(k => logged[k] != null).length + (logged.alcohol != null ? 1 : 0) : 0
 
   return <div className="card dl-card">
     <div className="row between" style={{ gap: 10 }}>
