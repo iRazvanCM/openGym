@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Apple Health, read only (AppleHealthPlugin.swift): steps, sleep, weight and workouts for
+	     the daily log. The unsigned .ipa carries it in an ad-hoc signature (build-ipa.yml) so a
+	     sideloader signing with a free Apple ID asks for an App ID with HealthKit. -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+</dict>
+</plist>

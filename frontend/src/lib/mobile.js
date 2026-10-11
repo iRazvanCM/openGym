@@ -169,6 +169,39 @@ export function buildNudgeNotifications(S, now = new Date()) {
   return notifications
 }
 
+// The cut's two daily reminders (Progress → plan, the setup): step on the scale in the morning,
+// log the day in the evening — the two habits the trend and the maintenance estimate live on. One
+// notification per day for a week ahead, like the workout reminder; a day already weighed, or
+// already logged (a completed food diary, or calories typed in), is not reminded.
+export const CUT_WINDOW_DAYS = 7
+const WEIGH_ID_BASE = 3000
+const LOG_ID_BASE = 3100
+export function buildCutNotifications(S, now = new Date()) {
+  const remind = S?.cut?.remind
+  if (!remind || (!remind.weigh && !remind.log)) return []
+  const weighed = new Set((S.bodyweight || []).map(b => b?.d))
+  const logged = new Set((S.dailyLog || []).filter(e => e && (e.done || e.kcal != null)).map(e => e.d))
+  const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+  const out = []
+  const at = (day, hhmm) => {
+    const [h, m] = String(hhmm).split(':').map(Number)
+    if (!Number.isInteger(h) || !Number.isInteger(m)) return null
+    const when = new Date(day)
+    when.setHours(h, m, 0, 0)
+    return when > now ? when : null
+  }
+  for (let offset = 0; offset < CUT_WINDOW_DAYS; offset++) {
+    const day = new Date(date)
+    day.setDate(date.getDate() + offset)
+    const iso = isoOf(day)
+    const w = remind.weigh && !weighed.has(iso) ? at(day, remind.weigh) : null
+    if (w) out.push({ id: WEIGH_ID_BASE + offset, title: t('Weigh-in'), body: t('On the scale before breakfast, after the toilet. The trend needs every morning.'), schedule: { at: w, allowWhileIdle: true } })
+    const l = remind.log && !logged.has(iso) ? at(day, remind.log) : null
+    if (l) out.push({ id: LOG_ID_BASE + offset, title: t('Log your day'), body: t('Food, steps, sleep: two minutes keeps the plan honest.'), schedule: { at: l, allowWhileIdle: true } })
+  }
+  return out
+}
+
 // (Re)schedule the workout-day reminder: one one-off notification per future calendar date in
 // the bounded window. Cheap enough to run after any state change — the plan or the reminder time
 // may just have been edited. `interactive` gates the OS permission prompt to the Settings toggle;
@@ -180,13 +213,17 @@ export async function syncReminder(S, interactive = false) {
       ...LEGACY_REMINDER_IDS,
       ...Array.from({ length: REMINDER_WINDOW_DAYS }, (_, d) => ({ id: REMINDER_ID_BASE + d })),
       ...Array.from({ length: NUDGE_WINDOW_DAYS }, (_, d) => ({ id: NUDGE_ID_BASE + d })),
+      ...Array.from({ length: CUT_WINDOW_DAYS }, (_, d) => ({ id: WEIGH_ID_BASE + d })),
+      ...Array.from({ length: CUT_WINDOW_DAYS }, (_, d) => ({ id: LOG_ID_BASE + d })),
     ] }).catch(() => {})
     const r = S.reminder
-    if (!r?.on) return true
+    const cutOn = !!(S.cut?.remind?.weigh || S.cut?.remind?.log)
+    // the cut's reminders stand on their own: they need no workout reminder switched on
+    if (!r?.on && !cutOn) return true
     let perm = await LocalNotifications.checkPermissions()
     if (perm.display !== 'granted' && interactive) perm = await LocalNotifications.requestPermissions()
     if (perm.display !== 'granted') return false
-    const notifications = [...buildReminderNotifications(S), ...buildNudgeNotifications(S)]
+    const notifications = [...(r?.on ? [...buildReminderNotifications(S), ...buildNudgeNotifications(S)] : []), ...buildCutNotifications(S)]
     if (notifications.length) await LocalNotifications.schedule({ notifications })
     return true
   } catch (e) { return false }

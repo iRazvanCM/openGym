@@ -1,6 +1,10 @@
 # Builds an unsigned openGym .ipa for sideloading (Sideloadly, AltStore, SideStore).
 # Same steps as the build:ios job in .gitlab-ci.yml, run on a GitHub-hosted macOS runner
 # (free in a public repository). The sideloader signs the app with your own Apple ID.
+#
+# Every build on main also goes to the "ios-latest" release, under one fixed name, so the newest
+# .ipa is always at
+#   https://github.com/<owner>/<repo>/releases/download/ios-latest/openGym-unsigned.ipa
 name: Build unsigned iOS IPA
 
 on:
@@ -13,7 +17,7 @@ on:
       - '.github/workflows/build-ipa.yml'
 
 permissions:
-  contents: read
+  contents: write   # the ios-latest release
 
 env:
   # A bundle ID of your own, so signing with a free Apple ID does not fail with
@@ -44,7 +48,7 @@ jobs:
       - name: Archive without code signing
         working-directory: frontend/ios/App
         run: |
-          set -euo pipefail
+          set -uo pipefail
           VER="$(node -p "require('../../package.json').version")"
           BUILD="$(sed -n 's/^ *versionCode \([0-9]*\).*/\1/p' ../../android/app/build.gradle | sed -n 1p)"
           xcodebuild -quiet \
@@ -53,8 +57,18 @@ jobs:
             -archivePath "$PWD/build/App.xcarchive" \
             MARKETING_VERSION="$VER" CURRENT_PROJECT_VERSION="${BUILD:-1}" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            archive
+            archive 2>&1 | tee xcodebuild.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Compiler errors as annotations: they show on the run's page (and through the API)
+            # without downloading the whole log.
+            grep -E "(error|fatal error):" xcodebuild.log | sort -u | head -20 | while IFS= read -r line; do
+              echo "::error title=xcodebuild::${line}"
+            done
+            exit "$status"
+          fi
           echo "IPA_NAME=openGym-$VER-unsigned.ipa" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
 
       - name: Package the .ipa
         working-directory: frontend/ios/App
@@ -63,6 +77,16 @@ jobs:
           APP=build/App.xcarchive/Products/Applications/App.app
           test -f "$APP/App" || { echo "App binary missing from the archive" >&2; exit 1; }
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Info.plist"
+          # An ad-hoc signature that carries the app's entitlements (Apple Health): a sideloader
+          # reads them from the binary to know which capabilities the App ID it makes needs, and
+          # an unsigned binary has none to read. The frameworks inside are signed first.
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \) -print0 \
+              | xargs -0 -I{} codesign --force --sign - --timestamp=none {}
+          fi
+          codesign --force --sign - --timestamp=none --entitlements App/App.entitlements "$APP"
+          codesign -d --entitlements - "$APP" 2>/dev/null | grep -q "com.apple.developer.healthkit" \
+            || { echo "HealthKit entitlement missing from the signature" >&2; exit 1; }
           # An .ipa is a zip with the .app under Payload/.
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
@@ -77,3 +101,20 @@ jobs:
           archive: false
           retention-days: 14
           if-no-files-found: error
+
+      - name: Publish to the ios-latest release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG=ios-latest
+          cp "$IPA_NAME" openGym-unsigned.ipa
+          NOTES="openGym $APP_VERSION for iPhone, to sideload (Sideloadly, AltStore, SideStore). Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M') UTC."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" openGym-unsigned.ipa --clobber
+            gh release edit "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" openGym-unsigned.ipa --title "openGym for iPhone (sideload)" --notes "$NOTES" --target "$GITHUB_SHA" --prerelease
+          fi
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/openGym-unsigned.ipa" >> "$GITHUB_STEP_SUMMARY"

@@ -8,6 +8,7 @@ import { rememberDefaultLang } from '../lib/default-lang.js'
 import { guestAllowed } from '../lib/guest.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth } from '../lib/health-sync.js'
+import { initAppleHealth } from '../lib/apple-health.js'
 import { refillIfComplete } from '../lib/rotation.js'
 import { liftLegacy } from '../lib/sync-legacy.js'
 import { mergeStates, localExtras, stampChange, highestStamp, stampRestore, stampReplace, inUnitOf, keepReset, resetIdsOf, mergeResetIds, entryKey } from '../lib/sync-merge.js'
@@ -101,6 +102,11 @@ export const DEF = {
   // The fat-loss plan the Progress screen measures the log against: start date, daily targets,
   // the loss rate aimed for, diet breaks. null until set up; read through cutOf (lib/cut.js).
   cut: null,
+  // The foods kept for the food diary — products scanned or found online, foods of one's own
+  // (lib/food.js). A day's diary itself is that day's daily-log entry (`food`).
+  foods: [],
+  // What the setup asked to work the plan out — { sex, born, heightCm, activity } (lib/setup.js).
+  profile: null,
   queue: null,   // a planner's floating week (lib/queue.js) — via the API, or by this rotation feature (below)
   // The in-app rotation's reusable definition — { id, sequence, label } (lib/rotation.js). Never
   // a live queue: it only ever feeds `queue`, and `queue.rotationId` says the pass is managed here.
@@ -481,6 +487,8 @@ export const useStore = create((set, get) => {
 
   initReminderSync(() => get().S)
   initHealthSync(() => get().S)
+  // iPhone app: steps, sleep, weight and workouts from Apple Health into the daily log
+  initAppleHealth(() => get().S, fn => get().update(fn))
 
   // Mobile build: the file mirror, and beside it whose copy it is and which one (its `_ts`) —
   // restoreFromMirror takes the file back only for that account, and only while the two agree,

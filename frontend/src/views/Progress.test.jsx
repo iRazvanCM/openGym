@@ -37,7 +37,7 @@ describe('Progress', () => {
     useStore.setState(s => ({ S: { ...s.S, unit: 'kg', bodyweight: [], dailyLog: [], workouts: [], measurements: [], cut: null, targetW: null } }))
     act(() => root.render(<Progress />))
     expect(host.textContent).toContain('Start your cut')
-    act(() => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Start today').click() })
+    act(() => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Start today with these targets').click() })
     expect(useStore.getState().S.cut.start).toBe(todayISO())
   })
 

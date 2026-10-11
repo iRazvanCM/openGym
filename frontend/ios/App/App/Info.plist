@@ -66,5 +66,9 @@
 	<string>Used to scan your gym membership QR code, and to take a photo or video of an exercise you add yourself.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Used to record the sound of a video you take of an exercise you add yourself.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Reads your steps, sleep, weight and workouts (from your iPhone, Apple Watch or Garmin) into the daily log, so you don't type them.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>openGym only reads from Apple Health; it does not write to it.</string>
 </dict>
 </plist>

@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
-  CUT_DEFAULTS, LB_PER_KG, addDays, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, logFor,
+  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, logFor,
   weeklyRows,
 } from '../lib/cut.js'
 import { latestMeasurement, toMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
@@ -42,7 +42,7 @@ function CutSettings({ close }) {
   const r1 = n => Math.round(n * 10) / 10
   const [v, setV] = useState(() => ({
     start: cut.start || '', goal: S.targetW ?? null,
-    kcal: cut.kcal, protein: cut.protein, steps: cut.steps, cardio: cut.cardio, sleep: cut.sleep, gymDays: cut.gymDays,
+    kcal: cut.kcal, protein: cut.protein, fat: cut.fat, steps: cut.steps, cardio: cut.cardio, sleep: cut.sleep, gymDays: cut.gymDays,
     minKcal: cut.minKcal, maintenance: cut.maintenance,
     rateMin: r1(cut.rateMin * per), rateMax: r1(cut.rateMax * per),
     breaks: cut.breaks, bFrom: '', bTo: '',
@@ -60,14 +60,14 @@ function CutSettings({ close }) {
 
   const save = () => {
     if (v.rateMin == null || v.rateMax == null || v.rateMin >= v.rateMax) { toast(t('The lowest weekly loss must be below the highest')); return }
-    if (v.start && (!isIso(v.start) || v.start > today)) { toast(t('Choose a valid date')); return }
+    if (v.start && !isIso(v.start)) { toast(t('Choose a valid date')); return }
     const changed = v.kcal !== cut.kcal || v.steps !== cut.steps
     update(s => {
       s.cut = {
         changedAt: changed ? today : cut.changedAt,
         start: v.start || null,
-        kcal: v.kcal, protein: v.protein, steps: v.steps, cardio: v.cardio, sleep: v.sleep, gymDays: v.gymDays,
-        minKcal: v.minKcal, maintenance: v.maintenance,
+        kcal: v.kcal, protein: v.protein, fat: v.fat, steps: v.steps, cardio: v.cardio, sleep: v.sleep, gymDays: v.gymDays,
+        minKcal: v.minKcal, maintenance: v.maintenance, remind: cut.remind,
         rateMin: Math.round(v.rateMin / per * 100) / 100, rateMax: Math.round(v.rateMax / per * 100) / 100,
         breaks: v.breaks,
       }
@@ -91,7 +91,7 @@ function CutSettings({ close }) {
     <label className="measure-date">
       <span>{t('Start date')}</span>
       <div className="row" style={{ gap: 8 }}>
-        <input className="field" type="date" value={v.start} max={today} onChange={e => set('start', e.target.value)} />
+        <input className="field" type="date" value={v.start} onChange={e => set('start', e.target.value)} />
         <Button size="sm" variant="tinted" onClick={() => set('start', today)}>{t('Today')}</Button>
       </div>
     </label>
@@ -100,6 +100,9 @@ function CutSettings({ close }) {
       {num('goal', t('Goal weight'), unit, { decimal: true })}
       {num('kcal', t('Calories'), 'kcal')}
       {num('protein', t('Protein'), 'g')}
+      {num('fat', t('Fat'), 'g')}
+      <div className="measure-field"><span>{t('Carbs')}</span>
+        <span className="measure-input cut-derived"><b>{v.kcal && v.protein && v.fat ? carbsFor(v.kcal, v.protein, v.fat) : '–'}</b><i>{t('g · the rest')}</i></span></div>
       {num('steps', t('Steps'), '')}
       {num('cardio', t('Cardio a day'), t('min'))}
       {num('sleep', t('Sleep'), t('h'), { decimal: true })}
@@ -313,8 +316,15 @@ export default function Progress() {
       <div className="muted small" style={{ marginBottom: 12, lineHeight: 1.5 }}>
         {t('Targets: {0} kcal, {1} g protein, {2} steps, {3} min cardio a day, {4} h sleep. Change them any time with the gear.', fmtInt(cut.kcal), fmtInt(cut.protein), fmtInt(cut.steps), fmtInt(cut.cardio), fmtNum(cut.sleep))}
       </div>
-      <Button variant="primary" icon="flag" onClick={startToday}>{t('Start today')}</Button>
-      <div style={{ height: 8 }} /><Button onClick={cutSettingsSheet}>{t('Adjust the plan first')}</Button>
+      <Button variant="primary" icon="flag" onClick={() => nav('/setup')}>{t('Set up my plan')}</Button>
+      <div style={{ height: 8 }} /><Button onClick={startToday}>{t('Start today with these targets')}</Button>
+    </div>}
+    {cut.start && cut.start > today && <div className="card row" style={{ gap: 12 }}>
+      <span className="lrow-i" style={{ '--tint': 'var(--indigo)' }}><Icon name="flag" /></span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>{t('The cut starts {0}', fmtDate(cut.start, true))}</div>
+        <div className="small muted">{plural(daysBetween(today, cut.start), '{0} day to go. Weigh in and log meanwhile: the trend and your maintenance get a head start.', '{0} days to go. Weigh in and log meanwhile: the trend and your maintenance get a head start.')}</div>
+      </div>
     </div>}
 
     {r.trend.length > 0 && <div className="card cut-hero">

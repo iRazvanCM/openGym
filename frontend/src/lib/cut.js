@@ -3,9 +3,14 @@
 //
 // What a person logs each day lives in S.dailyLog, one entry per day like a weigh-in or a
 // measurement check-in: { d, t, kcal, protein, steps, cardio, sleep, alcohol, gym, energy, hunger,
-// note }. Body weight stays in S.bodyweight and the waist in S.measurements, so every screen that
-// already reads those keeps working; this module only reads them. The plan itself (start date,
-// daily targets, the loss rate aimed for, diet breaks) is S.cut, read through cutOf().
+// note, food, done, hk }. `food` is that day's food diary (lib/food.js): when a day has one, its
+// calories and protein are the diary's totals, and the typed `kcal`/`protein` only stand for days
+// without it. `done` marks today's diary as complete — until then today's food is a day still
+// being eaten, and it stays out of the averages. `hk` lists the fields Apple Health filled in
+// (lib/apple-health.js), which a later import may update and a hand edit takes over. Body weight
+// stays in S.bodyweight and the waist in S.measurements, so every screen that already reads those
+// keeps working; this module only reads them. The plan itself (start date, daily targets, the
+// loss rate aimed for, diet breaks) is S.cut, read through cutOf().
 //
 // Trend. Holt's linear exponential smoothing (a level and a slope) over the weigh-ins, the days
 // between two weigh-ins filled in on a straight line. A plain moving average (the Hacker's Diet
@@ -30,6 +35,7 @@ import { isoOf, todayISO, weekKey } from './format.js'
 import { workoutDay } from './history.js'
 import { e1rmSeries } from './onerm.js'
 import { isCardio, exOr } from './exercises.js'
+import { entryNutrition, normalizeFoodList } from './food.js'
 
 export const KCAL_PER_KG = 7700
 export const LB_PER_KG = 2.20462262
@@ -40,6 +46,7 @@ export const CUT_DEFAULTS = Object.freeze({
   start: null,          // iso date the cut began; null = not started yet
   kcal: 2000,           // daily calorie target
   protein: 175,         // g a day
+  fat: 60,              // g a day; carbs are what the calories leave (cutOf)
   steps: 10000,
   cardio: 45,           // minutes a day
   sleep: 8,             // hours a night
@@ -50,6 +57,7 @@ export const CUT_DEFAULTS = Object.freeze({
   maintenance: 3200,    // the starting guess for maintenance until the data gives its own
   breaks: [],           // [{ from, to }] maintenance phases: a diet break, the holidays
   changedAt: null,      // iso date calories or steps were last changed, for the two weeks a change needs
+  remind: null,         // { weigh: 'HH:MM' | null, log: 'HH:MM' | null } — the phone's two daily reminders
 })
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -70,7 +78,7 @@ export function cutOf(S) {
   if (isIso(raw.start)) c.start = raw.start
   if (isIso(raw.changedAt)) c.changedAt = raw.changedAt
   const RANGES = {
-    kcal: [800, 8000], protein: [20, 500], steps: [500, 60000], cardio: [0, 300], sleep: [3, 14],
+    kcal: [800, 8000], protein: [20, 500], fat: [10, 400], steps: [500, 60000], cardio: [0, 300], sleep: [3, 14],
     gymDays: [0, 7], minKcal: [800, 6000], maintenance: [1000, 9000], rateMin: [0.05, 2.5], rateMax: [0.1, 3],
   }
   for (const [k, [lo, hi]] of Object.entries(RANGES)) {
@@ -78,12 +86,23 @@ export function cutOf(S) {
     if (raw[k] != null && raw[k] !== '' && Number.isFinite(n) && n >= lo && n <= hi) c[k] = round(n, k.startsWith('rate') || k === 'sleep' ? 2 : 0)
   }
   if (c.rateMin >= c.rateMax) { c.rateMin = CUT_DEFAULTS.rateMin; c.rateMax = CUT_DEFAULTS.rateMax }
+  c.carbs = carbsFor(c.kcal, c.protein, c.fat)
+  const time = v => (typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : null)
+  const remind = { weigh: time(raw.remind?.weigh), log: time(raw.remind?.log) }
+  c.remind = remind.weigh || remind.log ? remind : null
   c.breaks = (Array.isArray(raw.breaks) ? raw.breaks : [])
     .filter(b => b && isIso(b.from) && isIso(b.to) && b.from <= b.to)
     .map(b => ({ from: b.from, to: b.to }))
     .sort((a, b) => a.from.localeCompare(b.from))
   return c
 }
+
+/**
+ * The carbs a day's calories leave once protein and fat are in (4 kcal a gram of protein or carbs,
+ * 9 of fat): protein and fat are the targets that matter on a cut, carbs fill the rest. 2,000 kcal
+ * with 175 g protein and 60 g fat leaves 190 g.
+ */
+export const carbsFor = (kcal, protein, fat) => Math.max(0, Math.round((kcal - 4 * protein - 9 * fat) / 4))
 
 export const activeBreak = (cut, iso) => cut.breaks.find(b => b.from <= iso && iso <= b.to) || null
 export const nextBreak = (cut, iso) => cut.breaks.find(b => b.from > iso) || null
@@ -102,6 +121,8 @@ export const LOG_NUMS = Object.freeze({
 const LOG_FLAGS = ['alcohol', 'gym']
 const LOG_SCALES = ['energy', 'hunger']
 const LOG_KEYS = [...Object.keys(LOG_NUMS), ...LOG_FLAGS, ...LOG_SCALES]
+/** The fields Apple Health can fill in. */
+export const HK_FIELDS = Object.freeze(['steps', 'sleep', 'cardio', 'gym'])
 
 const logNum = (v, [lo, hi, dec]) => {
   if (v === null || v === undefined || v === '') return null
@@ -117,10 +138,15 @@ export function normalizeLogEntry(raw) {
   for (const k of LOG_FLAGS) e[k] = typeof raw[k] === 'boolean' ? raw[k] : null
   for (const k of LOG_SCALES) { const n = Math.round(Number(raw[k])); e[k] = raw[k] != null && n >= 1 && n <= 5 ? n : null }
   e.note = typeof raw.note === 'string' ? raw.note.trim().slice(0, 500) : ''
+  const food = normalizeFoodList(raw.food)
+  if (food.length) e.food = food
+  if (raw.done === true && food.length) e.done = true
+  const hk = Array.isArray(raw.hk) ? HK_FIELDS.filter(k => raw.hk.includes(k) && e[k] != null) : []
+  if (hk.length) e.hk = hk
   return e
 }
 
-export const logHasValues = e => !!e && (LOG_KEYS.some(k => e[k] != null) || !!e.note)
+export const logHasValues = e => !!e && (LOG_KEYS.some(k => e[k] != null) || !!e.note || !!e.food?.length)
 
 /**
  * The list in its one-entry-per-day shape, oldest first. Two entries for a day (an imported
@@ -138,7 +164,16 @@ export function normalizeDailyLogState(state) {
     const m = { ...a, t: b.t }
     for (const k of LOG_KEYS) m[k] = b[k] ?? a[k]
     m.note = b.note || a.note
-    byDay.set(e.d, m)
+    // the two halves' food, the later one's version of an item both have
+    if (a.food || b.food) {
+      const ids = new Set((b.food || []).map(it => it.id))
+      m.food = [...(a.food || []).filter(it => !ids.has(it.id)), ...(b.food || [])]
+    }
+    if (a.done || b.done) m.done = true
+    // a field Apple Health filled in stays marked so only where the value kept came from there
+    const hk = HK_FIELDS.filter(k => ((b[k] != null ? b.hk : a.hk) || []).includes(k))
+    if (hk.length) m.hk = hk; else delete m.hk
+    byDay.set(e.d, normalizeLogEntry(m) || m)
   }
   state.dailyLog = [...byDay.values()].filter(logHasValues).sort((a, b) => a.d.localeCompare(b.d))
   return state
@@ -223,15 +258,32 @@ export function trendOn(trend, iso) {
 /* ------------------------------------------------------------------------ summaries -- */
 
 const inRange = (d, from, to) => d >= from && d <= to
+// summarize's stats that come from a day's nutrition rather than from the entry's own fields
+const NUT_KEYS = { kcal: 'kcal', protein: 'protein', carbs: 'carbs', fat: 'fat' }
+
+/**
+ * A day's calories and macros as they count for the averages: the food diary's totals, or the
+ * typed calories and protein of a day without one. Today's diary is still being eaten, so it
+ * counts only once marked complete (`done`) — a breakfast logged at nine would otherwise drag
+ * every average, and the maintenance estimate, down for the rest of the day.
+ */
+export function countedNutrition(e, today = todayISO()) {
+  const n = entryNutrition(e)
+  if (n.src === 'food' && e.d >= today && !e.done) return { kcal: null, protein: null, carbs: null, fat: null, src: null }
+  return n
+}
 
 /** What a stretch of days added up to, against the plan's targets. Both ends included. */
-export function summarize(S, from, to, cut = cutOf(S)) {
+export function summarize(S, from, to, cut = cutOf(S), today = todayISO()) {
   const days = daysBetween(from, to) + 1
   const logs = (Array.isArray(S?.dailyLog) ? S.dailyLog : []).filter(e => e && inRange(e.d, from, to))
-  const vals = k => logs.map(e => e[k]).filter(v => v != null)
+  const nut = new Map(logs.map(e => [e, countedNutrition(e, today)]))
+  const vals = k => logs.map(e => (k in NUT_KEYS ? nut.get(e)[NUT_KEYS[k]] : e[k])).filter(v => v != null)
   const stat = k => { const v = vals(k); return { avg: mean(v), n: v.length } }
   const kcal = stat('kcal'), protein = stat('protein'), steps = stat('steps'), sleep = stat('sleep')
+  const carbs = stat('carbs'), fat = stat('fat')
   const energy = stat('energy'), hunger = stat('hunger')
+  const kcalOf = e => nut.get(e).kcal, proteinOf = e => nut.get(e).protein
   let cardioTotal = 0, cardioDays = 0, cardioHit = 0, gym = 0
   for (let i = 0; i < days; i++) {
     const d = addDays(from, i)
@@ -243,8 +295,10 @@ export function summarize(S, from, to, cut = cutOf(S)) {
   return {
     from, to, days,
     logged: logs.length,
-    kcal: { ...kcal, hit: logs.filter(e => e.kcal != null && e.kcal <= cut.kcal + 100 && e.kcal >= cut.kcal - 300).length },
-    protein: { ...protein, hit: logs.filter(e => e.protein != null && e.protein >= cut.protein * 0.9).length },
+    kcal: { ...kcal, hit: logs.filter(e => kcalOf(e) != null && kcalOf(e) <= cut.kcal + 100 && kcalOf(e) >= cut.kcal - 300).length },
+    protein: { ...protein, hit: logs.filter(e => proteinOf(e) != null && proteinOf(e) >= cut.protein * 0.9).length },
+    carbs, fat,
+    foodDays: logs.filter(e => nut.get(e).src === 'food').length,
     steps: { ...steps, hit: logs.filter(e => e.steps != null && e.steps >= cut.steps).length },
     sleep: { ...sleep, hit: logs.filter(e => e.sleep != null && e.sleep >= 7).length },
     cardio: { total: cardioTotal, days: cardioDays, hit: cardioHit },
@@ -258,14 +312,14 @@ export function summarize(S, from, to, cut = cutOf(S)) {
 }
 
 /** Week by week from `from` to `to` (the profile's weeks), newest first, each with its summary. */
-export function weeklyRows(S, from, to, ws = 1, cut = cutOf(S)) {
+export function weeklyRows(S, from, to, ws = 1, cut = cutOf(S), today = todayISO()) {
   if (!isIso(from) || !isIso(to) || from > to) return []
   const rows = []
   for (let key = weekKey(from, ws); key <= to; key = addDays(key, 7)) {
     const a = key < from ? from : key
     const end = addDays(key, 6)
     const b = end > to ? to : end
-    rows.push({ key, ...summarize(S, a, b, cut) })
+    rows.push({ key, ...summarize(S, a, b, cut, today) })
   }
   rows.forEach((r, i) => { r.change = i && r.avgW != null && rows[i - 1].avgW != null ? r.avgW - rows[i - 1].avgW : null })
   return rows.reverse()
@@ -317,7 +371,7 @@ export function expenditure(S, today = todayISO(), cut = cutOf(S), trend = weigh
   if (cut.start && addDays(cut.start, 7) > begin) begin = addDays(cut.start, 7)
   if (begin < trend[0].d) begin = trend[0].d
   const span = daysBetween(begin, end.d)
-  const kcal = (S?.dailyLog || []).filter(e => e && e.kcal != null && inRange(e.d, begin, end.d)).map(e => e.kcal)
+  const kcal = (S?.dailyLog || []).filter(e => e && inRange(e.d, begin, end.d)).map(e => countedNutrition(e, today).kcal).filter(v => v != null)
   const perDay = span >= 13 ? weighInSlope(S?.bodyweight, begin, end.d) : null
   if (perDay == null || kcal.length < 10) return { ready: false, logged: kcal.length, span: Math.max(0, span) }
   const intake = mean(kcal)
@@ -401,8 +455,8 @@ export function cutReport(S, today = todayISO()) {
   const planW = started && startW != null ? Math.max(goalW ?? -Infinity, startW - rateMid * (dayN - 1) / 7) : null
   const vsPlan = planW != null && trendW != null ? trendW - planW : null
 
-  const week7 = summarize(S, addDays(today, -6), today, cut)
-  const prev7 = summarize(S, addDays(today, -13), addDays(today, -7), cut)
+  const week7 = summarize(S, addDays(today, -6), today, cut, today)
+  const prev7 = summarize(S, addDays(today, -13), addDays(today, -7), cut, today)
   const tdee = expenditure(S, today, cut, trend)
   const strength = strengthCheck(S, today, cut)
   const brk = activeBreak(cut, today)
@@ -495,14 +549,16 @@ export function dailyLogCSV(S) {
     .map(m => [m.d, unit === 'lb' ? round(m.waist / 2.54, 1) : round(m.waist, 1)]))
   const days = new Set([...weights.keys(), ...waist.keys(), ...(S?.dailyLog || []).filter(e => e && isIso(e.d)).map(e => e.d),
     ...(S?.workouts || []).map(workoutDay).filter(Boolean)])
-  const head = ['date', `weight_${unit}`, `trend_${unit}`, 'kcal', 'protein_g', 'steps', 'cardio_min', 'sleep_h',
-    'alcohol', 'gym', 'energy_1_5', 'hunger_1_5', `waist_${lenUnit}`, 'note']
+  const head = ['date', `weight_${unit}`, `trend_${unit}`, 'kcal', 'protein_g', 'carbs_g', 'fat_g', 'food_items', 'steps',
+    'cardio_min', 'sleep_h', 'alcohol', 'gym', 'energy_1_5', 'hunger_1_5', `waist_${lenUnit}`, 'note']
   const rows = [...days].sort().map(d => {
     const e = logFor(S, d) || {}
+    const n = entryNutrition(e)
     const p = trend.get(d)
     const yesNo = v => (v == null ? '' : v ? 'yes' : 'no')
-    return [d, weights.get(d) ?? '', p ? round(p.L, 2) : '', e.kcal, e.protein, e.steps, cardioOn(S, d), e.sleep,
-      yesNo(e.alcohol), trainedOn(S, d) ? 'yes' : '', e.energy, e.hunger, waist.get(d) ?? '', e.note || '']
+    return [d, weights.get(d) ?? '', p ? round(p.L, 2) : '', n.kcal, n.protein != null ? round(n.protein) : null,
+      n.carbs != null ? round(n.carbs) : null, n.fat != null ? round(n.fat) : null, e.food?.length || '', e.steps,
+      cardioOn(S, d), e.sleep, yesNo(e.alcohol), trainedOn(S, d) ? 'yes' : '', e.energy, e.hunger, waist.get(d) ?? '', e.note || '']
   })
   return [head, ...rows].map(r => r.map(csvCell).join(',')).join('\n') + '\n'
 }

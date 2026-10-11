@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, forwardRef, useSyncExternalStore } from 'r
 import { useNavigate, useParams, useLocation, Navigate } from 'react-router-dom'
 import { useStore, DEF, hasData } from '../store/useStore.js'
 import { healthStatus, loadHealth, enableHealth, disableHealth, openHealthConnect, onHealthChange } from '../lib/health-sync.js'
+import { appleHealthStatus, connectAppleHealth, disconnectAppleHealth, importAppleHealth, loadAppleHealth, onAppleHealthChange } from '../lib/apple-health.js'
 import { workoutControls } from '../lib/workout-controls.js'
 import { speedUnitOf } from '../lib/speed.js'
 import { formulaOf, FORMULA_NAMES } from '../lib/onerm.js'
 import { copyText } from '../lib/clipboard.js'
 import { useUI } from '../store/useUI.js'
-import { ACCENTS, ACCENT_NAMES, todayISO, localTZ, weekStartOf, MONDAY, SUNDAY, fmtPlate } from '../lib/format.js'
+import { ACCENTS, ACCENT_NAMES, todayISO, localTZ, weekStartOf, MONDAY, SUNDAY, fmtPlate, fmtAgo } from '../lib/format.js'
 import { inventoryFor, ownsPlates } from '../lib/plates.js'
 import { dumbbellsOf } from '../lib/dumbbells.js'
 import { effortOf } from '../lib/history.js'
@@ -785,6 +786,7 @@ export default function Settings({ page = null, find = null, via = null }) {
         {MOBILE && android && S.autoBackup && <BackupFolderRow />}
       </Section>
       {MOBILE && android && <HealthConnectCard S={S} toast={toast} />}
+      {MOBILE && !android && <AppleHealthCard toast={toast} />}
       <Section title={t('Bring data in')}>
         <Row icon="download" iconTint="var(--teal)" title={t('Import backup')} accessory="chevron" onClick={() => fileRef.current.click()} />
         <Row icon="download" iconTint="var(--teal)" title={t('Import from another app')}
@@ -1426,6 +1428,56 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
     </>}
     <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
   </>
+}
+
+// iPhone app: reading steps, sleep, weight and workouts from Apple Health into the daily log
+// (lib/apple-health.js) — which is also the way in for a Garmin, through Garmin Connect's own
+// Apple Health switch. A fact about this phone, like Health Connect below: its own file, not S.
+function AppleHealthCard({ toast }) {
+  const [st, setSt] = useState(null)
+  const [h, setH] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let gone = false
+    appleHealthStatus().then(async s => {
+      if (gone) return
+      setSt(s)
+      if (s === 'available') { const f = await loadAppleHealth(); if (!gone) setH(f) }
+    }).catch(() => {})
+    const off = onAppleHealthChange(f => { if (!gone) setH(f) })
+    return () => { gone = true; off() }
+  }, [])
+  if (st !== 'available' || !h) return null
+
+  const getS = () => useStore.getState().S
+  const upd = fn => useStore.getState().update(fn)
+  const run = async fn => { setBusy(true); try { await fn() } catch { toast(t('Could not read Apple Health')) } setBusy(false) }
+  const turnOn = () => run(async () => {
+    const r = await connectAppleHealth(getS, upd)
+    setH(await loadAppleHealth())
+    if (r.ok) toast(r.changed ? t('Apple Health connected · {0} updates', r.changed) : t('Apple Health connected'))
+    else toast(r.reason === 'entitlement' ? t('This install has no Apple Health permission') : t('Could not connect to Apple Health'))
+  })
+  const turnOff = () => run(async () => { setH(await disconnectAppleHealth()) })
+  const readNow = () => run(async () => {
+    const r = await importAppleHealth(getS, upd, { days: 30, force: true })
+    setH(await loadAppleHealth())
+    toast(r.error ? t('Could not read Apple Health') : r.changed ? t('{0} updates from Apple Health', r.changed) : t('Already up to date'))
+  })
+
+  return (
+    <Section title={t('Apple Health')}
+      footer={t('Garmin: in the Garmin Connect app, Settings → Connected Apps → Apple Health, and turn everything on. Apple Health only fills what you left empty — a value you type always wins.')}>
+      <Row icon="heart" iconTint="var(--red)" title={t('Read from Apple Health')}
+        subtitle={t('Steps, sleep, weight and workouts from the iPhone, an Apple Watch or a Garmin.')}>
+        <Switch checked={!!h.on} disabled={busy} onChange={v => (v ? turnOn() : turnOff())} />
+      </Row>
+      {h.on && <Row icon="repeat" iconTint="var(--blue)" title={t('Read the last 30 days now')}
+        subtitle={h.at ? t('Last read {0}', fmtAgo(h.at)) : undefined} accessory="chevron" onClick={readNow} />}
+      {h.error === 'entitlement' && <Row icon="warning" iconTint="var(--orange)" title={t('No Apple Health permission in this install')}
+        subtitle={t('It was signed without HealthKit. Install the latest .ipa again with your Apple ID; if the sideloader drops HealthKit, steps and sleep can still be typed in.')} />}
+    </Section>
+  )
 }
 
 // Android app: writing finished workouts and weigh-ins to Health Connect (#200), the phone's
