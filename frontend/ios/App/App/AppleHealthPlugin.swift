@@ -83,7 +83,8 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let group = DispatchGroup()
         let lock = NSLock()
-        var result: [String: Any] = ["steps": [], "sleep": [], "weights": [], "workouts": []]
+        let none = [[String: Any]]()
+        var result: [String: Any] = ["steps": none, "sleep": none, "weights": none, "workouts": none]
         var errors: [String] = []
         func finish(_ key: String, _ rows: [[String: Any]], _ error: Error?) {
             lock.lock()
