@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EXIDX } from './exercises.js'
+import { EXIDX, isCardio } from './exercises.js'
 import { ALL_EQUIPMENT, eqAvailable } from './equipment.js'
 import { buildStarterPlan, starterPlanDays, starterPlanOptions, starterRoutines } from './starter.js'
 
@@ -27,15 +27,24 @@ const APPROVED = {
     [3, '5×5 B', [['0085', 5, 5], ['0426', 5, 5], ['2330', 5, 5]]],
     [5, '5×5 C', [['0739', 5, 5], ['0047', 5, 5], ['1323', 5, 5]]],
   ],
+  // the last slot of each day is its cardio, in minutes
+  ppl6: [
+    [1, 'Push A', [['0025', 4, 8], ['0091', 3, 8], ['0314', 3, 10], ['0334', 3, 15], ['0241', 3, 12], ['3666', 1, 40]]],
+    [2, 'Pull A', [['0027', 4, 8], ['2330', 3, 10], ['1323', 3, 12], ['5656', 3, 15], ['0031', 3, 10], ['3666', 1, 40]]],
+    [3, 'Legs A', [['0043', 4, 6], ['0085', 3, 8], ['0739', 3, 12], ['0586', 3, 12], ['0605', 4, 15], ['2138', 1, 25]]],
+    [4, 'Push B', [['0047', 4, 8], ['0405', 3, 10], ['1030', 3, 12], ['0334', 4, 15], ['0194', 3, 12], ['2192', 1, 40]]],
+    [5, 'Pull B', [['0652', 3, 8], ['0606', 3, 10], ['0861', 3, 12], ['2487', 3, 15], ['0313', 3, 12], ['1161', 1, 25]]],
+    [6, 'Legs B', [['5516', 4, 10], ['1060', 3, 10], ['2290', 3, 10], ['0585', 3, 15], ['0594', 4, 15], ['3666', 1, 30]]],
+  ],
 }
 
-const shape = r => r.ex.map(e => [e.id, e.sets, e.reps])
+const shape = r => r.ex.map(e => [e.id, e.sets, e.reps ?? e.min])
 
 describe('starter plan catalog', () => {
-  it('offers exactly the four plans, with the day count read off the schedule', () => {
+  it('offers exactly the five plans, with the day count read off the schedule', () => {
     expect(starterPlanOptions()).toEqual([
       { id: 'ppl', days: 3 }, { id: 'upper-lower', days: 4 },
-      { id: 'full-body', days: 3 }, { id: '5x5', days: 3 },
+      { id: 'full-body', days: 3 }, { id: '5x5', days: 3 }, { id: 'ppl6', days: 6 },
     ])
     for (const { id, days } of starterPlanOptions()) expect(starterPlanDays(id)).toHaveLength(days)
   })
@@ -65,11 +74,12 @@ describe.each(Object.keys(APPROVED))('%s', planId => {
       .toEqual(approved.map(([day, name]) => [day, name]))
   })
 
-  it('references only real exercises and starts every one at weight 0', () => {
+  it('references only real exercises and starts every one at weight 0 (cardio at its minutes)', () => {
     for (const r of buildStarterPlan(planId).routines) {
       for (const e of r.ex) {
         expect(EXIDX[e.id], e.id).toBeTruthy()
         expect(e.sets).toBeGreaterThan(0)
+        if (isCardio(e.id)) { expect(e.min).toBeGreaterThan(0); expect(e.reps).toBeUndefined(); continue }
         expect(e.reps).toBeGreaterThan(0)
         expect(e.weight).toBe(0)
       }

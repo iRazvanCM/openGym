@@ -6,7 +6,8 @@
 // schedule points at, so a weekday never depends on the position of a routine in the array.
 // Names stay canonical English — they become ordinary user routines, which are not translated.
 import { uid } from './format.js'
-import { EXIDX } from './exercises.js'
+import { EXIDX, isCardio } from './exercises.js'
+import { defaultConfig } from './history.js'
 import { eqAvailable, ALL_EQUIPMENT } from './equipment.js'
 
 const PPL = [
@@ -34,17 +35,34 @@ const FIVE_BY_FIVE = [
   ['5x5-c', '5×5 C', 'barbell', [['0739', 5, 5], ['0047', 5, 5], ['1323', 5, 5]]]
 ]
 
+// Push / pull / legs twice a week (Monday to Saturday), each muscle hit twice, A and B days
+// with different lifts — the six sessions a week of a cut that keeps its strength. Every session
+// ends with its cardio (the minutes are the third number for a cardio exercise): an incline
+// treadmill walk most days, the bike after legs, the elliptical and the rower for variety.
+const PPL_6 = [
+  ['push-a', 'Push A', 'barbell', [['0025', 4, 8], ['0091', 3, 8], ['0314', 3, 10], ['0334', 3, 15], ['0241', 3, 12], ['3666', 1, 40]]],
+  ['pull-a', 'Pull A', 'pullup', [['0027', 4, 8], ['2330', 3, 10], ['1323', 3, 12], ['5656', 3, 15], ['0031', 3, 10], ['3666', 1, 40]]],
+  ['legs-a', 'Legs A', 'legs', [['0043', 4, 6], ['0085', 3, 8], ['0739', 3, 12], ['0586', 3, 12], ['0605', 4, 15], ['2138', 1, 25]]],
+  ['push-b', 'Push B', 'barbell', [['0047', 4, 8], ['0405', 3, 10], ['1030', 3, 12], ['0334', 4, 15], ['0194', 3, 12], ['2192', 1, 40]]],
+  ['pull-b', 'Pull B', 'pullup', [['0652', 3, 8], ['0606', 3, 10], ['0861', 3, 12], ['2487', 3, 15], ['0313', 3, 12], ['1161', 1, 25]]],
+  ['legs-b', 'Legs B', 'legs', [['5516', 4, 10], ['1060', 3, 10], ['2290', 3, 10], ['0585', 3, 15], ['0594', 4, 15], ['3666', 1, 30]]]
+]
+
 // [weekday, routineKey] — weekday is a DAYN index, so 1 is Monday. Fixed weeks only: every
 // plan repeats the same seven days, which is all the weekly plan model can represent.
 const PLANS = {
   ppl: { routines: PPL, schedule: [[1, 'push'], [3, 'pull'], [5, 'legs']] },
   'upper-lower': { routines: UPPER_LOWER, schedule: [[1, 'upper-a'], [2, 'lower-a'], [4, 'upper-b'], [5, 'lower-b']] },
   'full-body': { routines: FULL_BODY, schedule: [[1, 'fb-a'], [3, 'fb-b'], [5, 'fb-c']] },
-  '5x5': { routines: FIVE_BY_FIVE, schedule: [[1, '5x5-a'], [3, '5x5-b'], [5, '5x5-c']] }
+  '5x5': { routines: FIVE_BY_FIVE, schedule: [[1, '5x5-a'], [3, '5x5-b'], [5, '5x5-c']] },
+  ppl6: { routines: PPL_6, schedule: [[1, 'push-a'], [2, 'pull-a'], [3, 'legs-a'], [4, 'push-b'], [5, 'pull-b'], [6, 'legs-b']] }
 }
 
+// A cardio slot is a time, not reps: [id, sets, minutes] becomes { sets, min }, its speed left to
+// the exercise's own default (lib/history.js defaultConfig).
+const slot = ([id, sets, reps]) => (isCardio(id) ? { ...defaultConfig(id), id, sets, min: reps } : { id, sets, reps, weight: 0 })
 const build = routines =>
-  routines.map(([, name, emoji, list]) => ({ id: uid(), name, emoji, ex: list.map(([id, sets, reps]) => ({ id, sets, reps, weight: 0 })) }))
+  routines.map(([, name, emoji, list]) => ({ id: uid(), name, emoji, ex: list.map(slot) }))
 
 // Fresh routine objects (new ids) — [push, pull, legs]. The demo build seeds a history on
 // top of exactly these three, so this entry point keeps its shape.
