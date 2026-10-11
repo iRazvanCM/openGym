@@ -9,6 +9,7 @@ import { guestAllowed } from '../lib/guest.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth } from '../lib/health-sync.js'
 import { initAppleHealth } from '../lib/apple-health.js'
+import { moveToAppleLook } from '../lib/look.js'
 import { refillIfComplete } from '../lib/rotation.js'
 import { liftLegacy } from '../lib/sync-legacy.js'
 import { mergeStates, localExtras, stampChange, highestStamp, stampRestore, stampReplace, inUnitOf, keepReset, resetIdsOf, mergeResetIds, entryKey } from '../lib/sync-merge.js'
@@ -87,7 +88,8 @@ const gainedWorkoutMedia = (prev, next) => {
 }
 export const DEF = {
   unit: 'kg', restSec: 90, restPauseSec: 15, sound: true, soundOnSilent: false, vibrateOnSilent: false, timerFlash: false, timedSetOvertime: false, keepAwake: true, lang: 'en',
-  theme: 'dark', accent: 'lime', body: 'male', targetW: null,
+  // The iPhone's own look by default: light or dark with the phone, Apple's blue (see LOOK below).
+  theme: 'system', accent: 'sky', body: 'male', targetW: null,
   bodyweight: [], routines: [], week: {}, dayPlan: {},
   // A note per day off (#261): { [iso]: { tag, text, _ts } } (lib/day-notes.js). A noted day is
   // excused from the missed-day nudge; each day merges on its own stamp (lib/sync-merge.js).
@@ -295,6 +297,11 @@ function loadState() {
     if (raw) {
       const saved = JSON.parse(raw)
       const s = sanitizeAccent(Object.assign(clone(DEF), saved))
+      // a copy of this device's own (no account it syncs with) moves to the iPhone look here; an
+      // account's copy keeps what it has, so a sync never sees a change nobody made
+      let synced = false
+      try { synced = !!localStorage.getItem('gym_owner') } catch { /* no storage: this device's own */ }
+      if (!synced) moveToAppleLook(s)
       if (!saved.lang) s.lang = detectedLang()
       return s
     }
@@ -1904,7 +1911,7 @@ export const useStore = create((set, get) => {
         const saved = await nativeLoad()
         const S = get().S
         if (saved && (!hasData(S) || (saved._ts || 0) >= (S._ts || 0))) {
-          persist(sanitizeAccent(Object.assign(clone(DEF), saved)), false, false)
+          persist(moveToAppleLook(sanitizeAccent(Object.assign(clone(DEF), saved))), false, false)
         } else if (hasData(S)) {
           nativePersist(true)   // first run after an update from a file-less version: seed the mirror
         }
