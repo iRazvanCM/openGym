@@ -25,6 +25,7 @@ import { t, dateLocale, getLang } from '../lib/i18n.js'
 import { useSheetKeyboard } from '../lib/use-sheet-keyboard.js'
 import Icon from './Icon.jsx'
 import { Button, NumberField, SearchField, Segmented, TextField } from './ui.jsx'
+import { APP_NAME } from '../lib/brand.js'
 
 const ui = () => useUI.getState()
 const toast = (m, o) => ui().toast(m, o)
@@ -360,7 +361,7 @@ function AddFood({ date, meal: meal0, close }) {
       const r = await scanCode()
       if (r?.value) await lookUp(r.value)
     } catch (e) {
-      toast(e?.message === 'permission-denied' ? t('Allow the camera for openGym in Settings to scan.') : t('Scanning is not available here. Type the barcode into the search instead.'))
+      toast(e?.message === 'permission-denied' ? t('Allow the camera for {0} in Settings to scan.', APP_NAME) : t('Scanning is not available here. Type the barcode into the search instead.'))
     }
   }
 

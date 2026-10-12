@@ -66,6 +66,7 @@ import { workoutCardModel, layoutWorkoutCard, drawWorkoutCard, viewAspect, CARD_
 import { copyText } from './lib/clipboard.js'
 import { queueRemaining, pinState } from './lib/queue.js'
 import { DAY_NOTE_TAGS, DAY_NOTE_LABEL, DAY_NOTE_ICON, dayNoteOf, dayNoteLine, canNoteDay, withDayNote } from './lib/day-notes.js'
+import { APP_NAME } from './lib/brand.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -2619,10 +2620,10 @@ function ShareWorkoutImage({ w, nameOf, close }) {
     return () => { alive = false }
   }, [model, withMap, st.body])
   useEffect(() => () => { if (shown.current) URL.revokeObjectURL(shown.current) }, [])
-  const name = 'opengym-workout-' + (workoutDay(w) || todayISO()) + '.png'
+  const name = APP_NAME.toLowerCase() + '-workout-' + (workoutDay(w) || todayISO()) + '.png'
   const share = async () => {
     setBusy(true)
-    await shareImage(img.blob, name, w.name || 'openGym')
+    await shareImage(img.blob, name, w.name || APP_NAME)
     setBusy(false)
     close()
   }

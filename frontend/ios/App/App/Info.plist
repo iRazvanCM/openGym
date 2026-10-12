@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>openGym</string>
+        <string>LiftLog</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -69,6 +69,6 @@
 	<key>NSHealthShareUsageDescription</key>
 	<string>Reads your steps, sleep, weight and workouts (from your iPhone, Apple Watch or Garmin) into the daily log, so you don't type them.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>openGym only reads from Apple Health; it does not write to it.</string>
+	<string>LiftLog only reads from Apple Health; it does not write to it.</string>
 </dict>
 </plist>
