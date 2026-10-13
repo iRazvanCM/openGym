@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
-  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, logFor,
+  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, liftsTrained, logFor,
   weeklyRows,
 } from '../lib/cut.js'
 import { latestMeasurement, toMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
@@ -27,6 +27,7 @@ import { DayChips, dailyLogSheet, fmt1, fmtInt, fmtRate, phaseInfo } from '../co
 import { goalSheet } from '../sheets.jsx'
 import PrecutCard from '../components/PrecutCard.jsx'
 import { finishCut, startMiniCut } from '../lib/maintain.js'
+import { densityReport } from '../lib/density.js'
 
 const update = fn => useStore.getState().update(fn)
 const toast = message => useUI.getState().toast(message)
@@ -180,7 +181,7 @@ function HowItWorks({ r, close }) {
     {p(t('Weekly pace'), t('The trend\'s slope. Losing about 0.5–1% of your body weight a week is the range linked to keeping muscle while dieting; your plan says {0}–{1} a week.', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + r.unit))}
     {p(t('Maintenance'), t('What you eat against how your weigh-ins move: about 7,700 kcal per kg lost. Ready after about three weeks of logging calories; the first week is left out because it is mostly water.'))}
     {p(t('Stalls'), t('The weekly average dropping less than the plan\'s lowest pace two weeks in a row: 100 kcal less a day, never under your floor — at the floor, 2,000 more steps instead. One slow week is noise. After any change it waits two weeks before suggesting another.'))}
-    {p(t('Strength check'), t('The estimated one-rep max of your main lifts in the last two weeks against your start. Strength holding is the best everyday sign that muscle is.'))}
+    {p(t('Strength check'), t('The estimated one-rep max of your key lifts (or the six you train most), averaged over their last three sessions, against the three before the cut. In a deficit strength usually holds, so a drop across the main lifts is a signal, and the log usually shows why: sleep, protein, the pace.'))}
     {p(t('Diet breaks'), t('Days at maintenance, part of the plan: its line stands still through them, the dates ahead move by them, and the maintenance estimate keeps its value from before the break, leaving out the break and the week after it. The scale goes up with the water of the extra carbs and comes back off in that week, which is why it gives no pace advice. The aim over the break is the trend at most 0.5 kg up (the holiday weighing studies). Breaks in a long diet did not cost muscle and helped fat loss in studies (MATADOR).'))}
     <div className="muted small" style={{ lineHeight: 1.5, margin: '6px 2px 14px' }}>
       {t('Sources: Helms et al. 2014, JISSN (rate, protein); Garthe et al. 2011, IJSNEM (slower loss kept more lean mass); Byrne et al. 2018, Int J Obes (MATADOR diet breaks); Steinberg et al. 2013, Obesity (daily weighing); MacroFactor expenditure method (energy balance).')}
@@ -334,6 +335,109 @@ function Verdict({ r, S }) {
       {r.advice.map((a, i) => { const text = adviceText(a); return text && <li key={i} className={a.code === 'tdee' || a.code.startsWith('break') ? 'info' : ''}><Icon name={a.code === 'tdee' ? 'calculator' : a.code.startsWith('break') ? 'sun' : 'info'} /><span>{text}</span></li> })}
     </ul>}
     {S.targetW == null && <Button size="sm" variant="plain" icon="target" onClick={goalSheet}>{t('Set a goal weight')}</Button>}
+  </div>
+}
+
+/* The lifts the strength check follows: four to six chosen, or the most-trained ones. */
+function KeyLifts({ close }) {
+  const S = useStore(s => s.S)
+  const cut = cutOf(S)
+  const today = todayISO()
+  const from = cut.start ? addDays(cut.start, -28) : addDays(today, -56)
+  const trained = liftsTrained(S, from, today).slice(0, 24)
+  const [picked, setPicked] = useState(() => cut.keyLifts.slice())
+  const toggle = id => setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : p.length >= 6 ? p : [...p, id]))
+  const save = () => {
+    update(s => { const c = cutOf(s); c.keyLifts = picked; s.cut = cutOf({ cut: c }) })
+    toast(picked.length ? t('The strength check follows {0} lifts', picked.length) : t('The strength check follows your most-trained lifts'))
+    close()
+  }
+  return <>
+    <h3 style={{ marginBottom: 4 }}>{t('Key lifts')}</h3>
+    <div className="muted small" style={{ marginBottom: 12, lineHeight: 1.45 }}>{t('Pick four to six: a squat, a hinge, a press, a pull. None picked, it follows the six you train most.')}</div>
+    {trained.length ? <div className="sect-b">
+      {trained.map(x => <div className="lrow tap" key={x.id} role="checkbox" aria-checked={picked.includes(x.id)} tabIndex={0} onClick={() => toggle(x.id)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(x.id) } }}>
+        <span className="lrow-m"><span className="lrow-t" style={{ textTransform: 'capitalize' }}>{exerciseNameText(exOr(x.id))}</span>
+          <span className="lrow-s">{plural(x.sessions, '{0} session', '{0} sessions')}</span></span>
+        <span className={'menu-on' + (picked.includes(x.id) ? ' is-on' : '')}><Icon name="check" /></span>
+      </div>)}
+    </div> : <div className="muted small">{t('Log your lifts with sets, reps and weight and they show up here.')}</div>}
+    <div className="small dim" style={{ margin: '8px 2px 14px' }}>{t('{0} of 6 picked', picked.length)}</div>
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+  </>
+}
+
+const CAUSE_TEXT = {
+  sleep: c => t('Sleep averaged {0} h: under 7 h cuts muscle building in a deficit.', fmtNum(c.avg)),
+  protein: c => t('Protein averaged {0} g of {1} g.', fmtInt(c.avg), fmtInt(c.target)),
+  pace: c => t('Losing {0} a week, faster than the range: a smaller deficit protects strength.', fmtRate(c.lossWk, '').replace(/[−+]/, '').trim() + (c.ratePct != null ? ` (${fmt1(Math.abs(c.ratePct))}%)` : '')),
+  kcal: c => t('Eating {0} kcal on average, under your floor of {1}.', fmtInt(c.avg), fmtInt(c.floor)),
+  alcohol: c => plural(c.n, 'Alcohol on {0} day in two weeks.', 'Alcohol on {0} days in two weeks.'),
+  energy: () => t('Energy logged low most days: recovery is short.'),
+}
+
+function StrengthCard({ r, S }) {
+  const st = r.strength
+  const unit = r.unit
+  return <div className="card">
+    <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
+      <h2 style={{ margin: 0 }}>{t('Strength check')}</h2>
+      <div className="row" style={{ gap: 6 }}>
+        {st.ready && <span className={'cut-tag ' + (st.status === 'hold' ? 'good' : st.status === 'slip' ? 'warn' : 'bad')}>
+          {st.status === 'hold' ? t('Holding') : st.status === 'slip' ? t('Slipping') : t('Dropping')}</span>}
+        {r.cut.start && <button className="iconbtn" onClick={() => useUI.getState().openSheet(close => <KeyLifts close={close} />)} aria-label={t('Key lifts')}><Icon name="slider" /></button>}
+      </div>
+    </div>
+    {st.ready ? <>
+      <div className="muted small" style={{ marginBottom: 6 }}>{st.chosen ? t('Your key lifts: estimated 1RM, the last 3 sessions against the 3 before the cut') : t('Your most-trained lifts: estimated 1RM, the last 3 sessions against the 3 before the cut')}</div>
+      {st.lifts.map(l => <div className="cut-lift" key={l.id}>
+        <span className="cut-lift-n">{exerciseNameText(exOr(l.id))}</span>
+        <span className="cut-lift-v">{fmtNum(l.base)} → <b>{fmtNum(l.recent)}</b> {unit}</span>
+        <span className={'cut-lift-p ' + (l.pct >= -0.03 ? 'good' : l.pct >= -0.07 ? 'warn' : 'bad')}>{pct(l.pct)}</span>
+      </div>)}
+      {st.status !== 'hold' && <div className="cut-causes">
+        <b>{st.causes.length ? t('What may be behind it') : t('Nothing in the log stands out')}</b>
+        {st.causes.length ? <ul>{st.causes.map(c => <li key={c.code}>{CAUSE_TEXT[c.code]?.(c)}</li>)}</ul>
+          : <p>{t('Sleep, protein and the pace look right. Keep the weights heavy and check again next week: one bad week is not a trend.')}</p>}
+      </div>}
+    </> : <div className="muted small" style={{ lineHeight: 1.5 }}>
+      {st.reason === 'nostart' ? t('Starts once the cut has a start date. Keep logging your workouts here.')
+        : st.reason === 'early' ? plural(st.inDays, 'Ready in {0} day: it compares your last sessions with the ones before the cut.', 'Ready in {0} days: it compares your last sessions with the ones before the cut.')
+          : t('Log your lifts with sets, reps and weight and they show up here.')}
+    </div>}
+  </div>
+}
+
+/* Food volume against hunger (lib/density.js): the calories in each gram, and what full days share. */
+function DensityCard({ S, today }) {
+  const d = useMemo(() => densityReport(S, today), [S, today])
+  if (!d.days) return null
+  const g = n => (n == null ? '–' : fmtInt(n) + ' g')
+  const k = n => (n == null ? '–' : fmt1(n))
+  const col = (title, x, tone) => <div className={'dens-col ' + tone}>
+    <b>{title}</b>
+    <span><i>{k(x.density)}</i> {t('kcal/g')}</span>
+    <span><i>{g(x.grams)}</i> {t('of food')}</span>
+    <span><i>{x.protein != null ? fmtInt(x.protein) + ' g' : '–'}</i> {t('protein')}</span>
+    <span><i>{x.sleep != null ? fmtNum(x.sleep) + ' ' + t('h') : '–'}</i> {t('sleep')}</span>
+  </div>
+  const denser = d.ready && d.hungry.density != null && d.full.density != null && d.hungry.density - d.full.density >= 0.15
+  return <div className="card">
+    <h2 style={{ margin: '0 0 4px' }}>{t('Hunger and food volume')}</h2>
+    <div className="small muted" style={{ marginBottom: 10 }}>
+      {d.week.n ? t('Last 7 days: {0} kcal per gram, about {1} of food a day', k(d.week.density), g(d.week.grams)) : t('Weighed food from the last four weeks')}
+    </div>
+    {d.ready ? <>
+      <div className="dens">
+        {col(t('Full days (hunger 1–2)'), d.full, 'good')}
+        {col(t('Hungry days (4–5)'), d.hungry, 'warn')}
+      </div>
+      <div className="small" style={{ marginTop: 10, lineHeight: 1.45, color: 'var(--label-2)' }}>
+        {denser ? t('On hungry days the food was denser: the same calories as less food. Vegetables, fruit, soups and lean protein add weight without the calories.')
+          : t('Density is not what sets your full days apart: look at protein and sleep beside it.')}
+      </div>
+    </> : <div className="small muted" style={{ lineHeight: 1.45 }}>{t('Rate your hunger in the daily log (1–5) and weigh the food: after three full and three hungry days this shows what the full ones have in common.')}</div>}
   </div>
 }
 
@@ -535,25 +639,8 @@ export default function Progress() {
       <div className="chart"><LineChart points={chart.line} series={chart.series} h={170} unit={unit} /></div>
     </div>}
 
-    <div className="card">
-      <div className="row between" style={{ marginBottom: 8 }}>
-        <h2 style={{ margin: 0 }}>{t('Strength check')}</h2>
-        {r.strength.ready && <span className={'cut-tag ' + (r.strength.status === 'hold' ? 'good' : r.strength.status === 'slip' ? 'warn' : 'bad')}>
-          {r.strength.status === 'hold' ? t('Holding') : r.strength.status === 'slip' ? t('Slipping') : t('Dropping')}</span>}
-      </div>
-      {r.strength.ready ? <>
-        <div className="muted small" style={{ marginBottom: 6 }}>{t('Best estimated 1RM: start of the cut → last 2 weeks')}</div>
-        {r.strength.lifts.map(l => <div className="cut-lift" key={l.id}>
-          <span className="cut-lift-n">{exerciseNameText(exOr(l.id))}</span>
-          <span className="cut-lift-v">{fmtNum(l.base)} → <b>{fmtNum(l.recent)}</b> {unit}</span>
-          <span className={'cut-lift-p ' + (l.pct >= -0.03 ? 'good' : l.pct >= -0.07 ? 'warn' : 'bad')}>{pct(l.pct)}</span>
-        </div>)}
-      </> : <div className="muted small" style={{ lineHeight: 1.5 }}>
-        {r.strength.reason === 'nostart' ? t('Starts once the cut has a start date. Keep logging your workouts here.')
-          : r.strength.reason === 'early' ? plural(r.strength.inDays, 'Ready in {0} day: it compares your last two weeks with the start.', 'Ready in {0} days: it compares your last two weeks with the start.')
-            : t('Log your lifts with sets, reps and weight and they show up here.')}
-      </div>}
-    </div>
+    <StrengthCard r={r} S={S} />
+    <DensityCard S={S} today={today} />
 
     <h4 className="sec">{t('Week by week')}</h4>
     {weeks.length ? <div className="list">{weeks.map(w => <div className="card cut-wk" key={w.key}>

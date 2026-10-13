@@ -368,3 +368,35 @@ describe('forgiving counters', () => {
     expect(consistency(S, day)).toMatchObject({ to: addDays(day, -1), log: { n: 7, of: 7, run: 7 } })
   })
 })
+
+describe('the finer strength check', () => {
+  const start = '2026-11-02'
+  const sess = (d, id, w) => ({ id: 'w' + d + id, d, start: at(d), end: at(d) + 3600000, entries: [{ id, sets: [{ w, r: 5, done: true }] }] })
+
+  it('averages the last three sessions against the three before the cut, and follows the lifts chosen', () => {
+    const workouts = [
+      ...[-12, -8, -4].map(i => sess(addDays(start, i), '0025', 100)),
+      ...[22, 26, 29].map((i, k) => sess(addDays(start, i), '0025', [90, 99, 99][k])),   // one bad day among three
+      ...[-10, -6, 1].map(i => sess(addDays(start, i), '0043', 60)),
+      ...[23, 27].map(i => sess(addDays(start, i), '0043', 54)),
+    ]
+    const S = { unit: 'kg', cut: { start }, workouts, dailyLog: [], bodyweight: [] }
+    const r = strengthCheck(S, addDays(start, 30))
+    const squat = r.lifts.find(l => l.id === '0025')
+    expect(squat.pct).toBeCloseTo(96 / 100 - 1, 2)   // (90 + 99 + 99) / 3 against 100, the same reps
+    expect(squat.nRecent).toBe(3)
+    const chosen = strengthCheck({ ...S, cut: { start, keyLifts: ['0043'] } }, addDays(start, 30))
+    expect(chosen.chosen).toBe(true)
+    expect(chosen.lifts.map(l => l.id)).toEqual(['0043'])
+    expect(chosen.status).toBe('drop')
+  })
+
+  it('names what in the log may be behind a drop', () => {
+    const workouts = [sess(addDays(start, -3), '0025', 100), sess(addDays(start, 2), '0025', 100), sess(addDays(start, 27), '0025', 88)]
+    const dailyLog = Array.from({ length: 14 }, (_, i) => ({ d: addDays(start, 16 + i), t: 1, kcal: 2000, protein: 120, sleep: 6.1 }))
+    const bodyweight = Array.from({ length: 31 }, (_, i) => ({ d: addDays(start, i), w: 106 - i * 0.15, t: at(addDays(start, i)) }))
+    const r = cutReport({ unit: 'kg', targetW: 85, cut: { start }, workouts, dailyLog, bodyweight }, addDays(start, 29))
+    expect(r.strength.status).toBe('drop')
+    expect(r.strength.causes.map(c => c.code)).toEqual(expect.arrayContaining(['sleep', 'protein']))
+  })
+})

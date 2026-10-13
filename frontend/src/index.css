@@ -2209,6 +2209,14 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .cut-lift-v{font-size:13px;color:var(--label-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cut-lift-v b{color:var(--label)}
 .cut-lift-p{font-size:13px;font-weight:600;min-width:44px;text-align:end;color:var(--tone);font-variant-numeric:tabular-nums}
+.cut-causes{margin-top:10px;padding:10px 12px;border-radius:var(--r);background:color-mix(in srgb,var(--orange) 10%,transparent);font-size:14px;line-height:1.4}
+.cut-causes ul{margin:4px 0 0;padding-inline-start:18px;color:var(--label)}
+.cut-causes p{margin:4px 0 0;color:var(--label-2)}
+.dens{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dens-col{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:var(--r);background:color-mix(in srgb,var(--tone) 10%,transparent);font-size:13px;color:var(--label-2)}
+.dens-col.good{--tone:var(--green)} .dens-col.warn{--tone:var(--orange)}
+.dens-col b{font-size:13px;color:var(--tone);margin-bottom:2px}
+.dens-col i{font-style:normal;font-weight:600;color:var(--label);font-variant-numeric:tabular-nums}
 .cut-wk{padding:12px 14px;margin-bottom:0}
 .cut-wk-s{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font-size:13px;color:var(--label-2);font-variant-numeric:tabular-nums}
 .cut-wk-s span{display:inline-flex;align-items:center;gap:4px}

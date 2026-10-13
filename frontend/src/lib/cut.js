@@ -537,35 +537,48 @@ export const kcalForRate = (S, tdee, rate, cut = cutOf(S)) =>
 
 /* ------------------------------------------------------------------------- strength -- */
 
+/** The lifts trained between two days, most sessions first: [{ id, sessions }] (cardio left out). */
+export function liftsTrained(S, from, to) {
+  const ids = new Map()
+  for (const w of S?.workouts || []) {
+    const d = workoutDay(w)
+    if (!d || d < from || d > to) continue
+    for (const id of new Set((w.entries || []).map(en => en?.id).filter(Boolean))) if (!isCardio(id)) ids.set(id, (ids.get(id) || 0) + 1)
+  }
+  return [...ids].map(([id, sessions]) => ({ id, sessions })).sort((a, b) => b.sessions - a.sessions)
+}
+
 /**
- * Whether strength is holding: each lift's best estimated 1RM of the last two weeks against its
- * best from the four weeks before the cut through its first week. Three weeks in at the earliest,
- * so the two windows never share a session.
+ * Whether strength is holding (report, item 10). For each lift — the four to six chosen in the plan
+ * (`keyLifts`), else the six trained most — the estimated 1RM averaged over its last three
+ * sessions against the average of its last three before the cut (the four weeks before it and its
+ * first week). An average of three takes out the odd great or bad day a single best set rides on.
+ * Three weeks in at the earliest, so the two never share a session; recent sessions are those of
+ * the last three weeks. In a deficit strength usually holds, so a sustained drop across the main
+ * lifts is a signal — `causes` (filled in by cutReport) says what in the log may be behind it.
  */
 export function strengthCheck(S, today = todayISO(), cut = cutOf(S)) {
   if (!cut.start) return { ready: false, reason: 'nostart' }
   const dayN = daysBetween(cut.start, today) + 1
   if (dayN < 21) return { ready: false, reason: 'early', inDays: 21 - dayN }
-  const baseFrom = addDays(cut.start, -28), baseTo = addDays(cut.start, 6), recFrom = addDays(today, -13)
-  const ids = new Map()
-  for (const w of S?.workouts || []) {
-    const d = workoutDay(w)
-    if (!d || d < baseFrom || d > today) continue
-    for (const en of w.entries || []) if (en?.id && !isCardio(en.id)) ids.set(en.id, (ids.get(en.id) || 0) + 1)
-  }
+  const baseFrom = addDays(cut.start, -28), baseTo = addDays(cut.start, 6), recFrom = addDays(today, -20)
+  const trained = liftsTrained(S, baseFrom, today)
+  const chosen = cut.keyLifts.length ? cut.keyLifts.map(id => trained.find(x => x.id === id) || { id, sessions: 0 }) : trained
   const lifts = []
-  for (const [id, sessions] of ids) {
-    const pts = e1rmSeries(S, id)
-    const best = (a, b) => pts.filter(p => p.d >= a && p.d <= b).reduce((m, p) => Math.max(m, p.y), 0)
-    const base = best(baseFrom, baseTo), recent = best(recFrom, today)
-    if (base > 0 && recent > 0) lifts.push({ id, name: exOr(id)?.n || id, sessions, base, recent, pct: recent / base - 1 })
+  for (const { id, sessions } of chosen) {
+    const pts = e1rmSeries(S, id).filter(p => p.d >= baseFrom && p.d <= today).sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : (a.t || 0) - (b.t || 0)))
+    const base = pts.filter(p => p.d <= baseTo).slice(-3)
+    const recent = pts.filter(p => p.d > baseTo && p.d >= recFrom).slice(-3)
+    if (!base.length || !recent.length) continue
+    const b = mean(base.map(p => p.y)), r = mean(recent.map(p => p.y))
+    if (b > 0 && r > 0) lifts.push({ id, name: exOr(id)?.n || id, sessions, base: b, recent: r, nBase: base.length, nRecent: recent.length, pct: r / b - 1 })
   }
-  lifts.sort((a, b) => b.sessions - a.sessions || b.base - a.base)
+  if (!cut.keyLifts.length) lifts.sort((a, b) => b.sessions - a.sessions || b.base - a.base)
   const top = lifts.slice(0, 6)
-  if (!top.length) return { ready: false, reason: 'nolifts' }
+  if (!top.length) return { ready: false, reason: 'nolifts', chosen: cut.keyLifts.length > 0 }
   const sorted = top.map(l => l.pct).sort((a, b) => a - b)
   const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
-  return { ready: true, lifts: top, median: mid, status: mid >= -0.03 ? 'hold' : mid >= -0.07 ? 'slip' : 'drop' }
+  return { ready: true, lifts: top, median: mid, status: mid >= -0.03 ? 'hold' : mid >= -0.07 ? 'slip' : 'drop', chosen: cut.keyLifts.length > 0, causes: [] }
 }
 
 /* ---------------------------------------------------------------------- maintenance -- */
@@ -656,6 +669,17 @@ export function cutReport(S, today = todayISO()) {
   const prev7 = summarize(S, addDays(today, -13), addDays(today, -7), cut, today, maintenance)
   const strength = strengthCheck(S, today, cut)
   const brk = brkNow
+  // What in the last two weeks may be costing strength: too little sleep or protein, a pace above
+  // the range, eating under the floor, alcohol, flat energy.
+  if (strength.ready && strength.status !== 'hold') {
+    const two = summarize(S, addDays(today, -13), today, cut, today, maintenance)
+    if (two.sleep.n >= 5 && two.sleep.avg < 7) strength.causes.push({ code: 'sleep', avg: round(two.sleep.avg, 1) })
+    if (two.protein.n >= 5 && two.protein.avg < cut.protein * 0.9) strength.causes.push({ code: 'protein', avg: round(two.protein.avg), target: cut.protein })
+    if (lossWk != null && lossWk > rateMax + 0.1 * per) strength.causes.push({ code: 'pace', lossWk, ratePct })
+    if (two.kcal.n >= 5 && two.kcal.avg < cut.minKcal) strength.causes.push({ code: 'kcal', avg: round(two.kcal.avg), floor: cut.minKcal })
+    if (two.alcoholDays >= 2) strength.causes.push({ code: 'alcohol', n: two.alcoholDays })
+    if (two.energy.n >= 5 && two.energy.avg <= 2.2) strength.causes.push({ code: 'energy' })
+  }
 
   // Where the cut stands this week.
   const recentWeighIns = weighIns(S?.bodyweight).filter(b => inRange(b.d, addDays(today, -13), today)).length
