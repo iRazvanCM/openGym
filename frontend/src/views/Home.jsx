@@ -17,6 +17,7 @@ import { glyphOf } from '../lib/glyphs.js'
 import { dayNoteOf } from '../lib/day-notes.js'
 import { DailyLogCard } from '../components/DailyLog.jsx'
 import SafetyCard from '../components/SafetyCard.jsx'
+import PrecutCard from '../components/PrecutCard.jsx'
 import { MOBILE } from '../lib/mobile.js'
 import { APP_NAME } from '../lib/brand.js'
 
@@ -169,6 +170,9 @@ export default function Home() {
     {/* The day's log — calories, protein, steps, cardio, sleep, alcohol — and where the cut
         stands, one tap from Progress (components/DailyLog.jsx). */}
     <DailyLogCard />
+
+    {/* The checks before the cut and its first two weeks (lib/precut.js), until all are done. */}
+    <PrecutCard />
 
     {/* Jump to the gym check-in cards (QR membership codes). Shown here as a quick tap on
         arrival at the gym; folds away per user via the "Gym check-in" switch in Settings. */}

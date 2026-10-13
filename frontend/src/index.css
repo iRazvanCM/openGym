@@ -2355,6 +2355,25 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .safety-rules b{display:block;font-size:15px;margin-bottom:2px}
 .safety-rules p{margin:0;font-size:13px;line-height:1.4;color:var(--label-2)}
 
+/* ---------------------------------------------------------------- before the cut -- */
+.precut{padding-bottom:6px}
+.precut-bar{height:6px;border-radius:99px;background:color-mix(in srgb,var(--label) 10%,transparent);overflow:hidden;margin:4px 0 6px}
+.precut-bar>span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#30d158,#34c759);transition:width var(--fast)}
+.precut-i{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:var(--hair) solid var(--sep)}
+.precut-ic{flex:none;font-size:18px;color:var(--label-3)}
+.precut-i.done .precut-ic{color:var(--green)}
+.precut-i.done b{color:var(--label-2);font-weight:500}
+.precut-m{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.precut-m b{font-size:15px;font-weight:600;line-height:1.3}
+.precut-m span{font-size:12px;color:var(--label-2);line-height:1.35}
+.precut-i .btn{flex:none}
+.precut-more{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:9px 0 6px;color:var(--acc);font-size:14px;font-weight:500;background:none;border-top:var(--hair) solid var(--sep)}
+.precut-res{margin-top:14px;padding:12px 14px;border-radius:var(--r);background:color-mix(in srgb,var(--tone) 12%,transparent)}
+.precut-res.good{--tone:var(--green)} .precut-res.warn{--tone:var(--orange)} .precut-res.bad{--tone:var(--red)}
+.precut-res b{display:flex;align-items:center;gap:7px;font-size:15px;color:var(--tone)}
+.precut-res>span{display:block;font-size:12px;color:var(--label-3);margin:3px 0 0;word-break:break-all}
+.precut-res ul{margin:8px 0 0;padding-inline-start:18px;font-size:14px;line-height:1.5;color:var(--label)}
+
 /* ===================================================================== liquid glass === */
 /* The iOS 26 look: controls float over the content as glass — translucent and blurred, a bright
    rim where the light catches the edge, a soft shadow under them — in capsule shapes, with the

@@ -54,7 +54,7 @@ export default function BackupFolderRow({ ios = false }) {
 
   return <>
     <Row icon="folder" iconTint="var(--blue)" title={t('Backup folder')}
-      subtitle={folder.uri ? (folder.label || t('Chosen folder')) : ios ? t('{0} · tap to choose iCloud Drive', home) : home} accessory="chevron" onClick={choose} />
+      subtitle={folder.uri ? (folder.label || t('Chosen folder')) + (folder.cloud ? ' · iCloud Drive' : '') : ios ? t('{0} · tap to choose iCloud Drive', home) : home} accessory="chevron" onClick={choose} />
     {folder.lost && <Row icon="warning" iconTint="var(--orange)" className="backup-lost"
       title={folder.lostLabel
         ? t('{0} can no longer write to “{1}”, so copies go to {2} again. Choose the folder again to switch back.', APP_NAME, folder.lostLabel, home)

@@ -13,6 +13,8 @@ import { exportStatus } from '../lib/backup-status.js'
 import { RENEWAL_RULES, appSigning, renewalOf } from '../lib/renewal.js'
 import { exportBackupJSON, exportBackupZip } from '../lib/backup-export.js'
 import { APP_NAME } from '../lib/brand.js'
+import { MOBILE } from '../lib/mobile.js'
+import { useBackupFolder } from './BackupFolderRow.jsx'
 import Icon from './Icon.jsx'
 import { Button, Row } from './ui.jsx'
 
@@ -78,8 +80,9 @@ export default function SafetyCard() {
   const S = useStore(s => s.S)
   const info = useSigning()
   const [busy, setBusy] = useState(false)
+  const [folder] = useBackupFolder(MOBILE && !!S.autoBackup)
   const hasMedia = referencedFiles(S).length > 0
-  const status = exportStatus(S, Date.now(), { hasMedia })
+  const status = exportStatus(S, Date.now(), { hasMedia, folder })
   const r = renewalOf(info)
   const renew = r && r.tone !== 'ok' ? r : null
   if (!renew && !status.due) return null
@@ -109,12 +112,15 @@ export default function SafetyCard() {
 
 /* ============================================================ Settings → Data == */
 
-/** The two rows under Back up: how old the last export is, and (sideloaded) when the app expires. */
-export function SafetyRows() {
+/**
+ * The two rows under Back up: how old the newest copy off the phone is, and (sideloaded) when the
+ * app expires. `folder` is the backup folder Settings already reads (an iCloud Drive one counts).
+ */
+export function SafetyRows({ folder = null }) {
   const S = useStore(s => s.S)
   const info = useSigning()
   const hasMedia = referencedFiles(S).length > 0
-  const status = exportStatus(S, Date.now(), { hasMedia })
+  const status = exportStatus(S, Date.now(), { hasMedia, folder })
   const r = renewalOf(info)
   return <>
     <Row icon="clock" iconTint={status.due ? 'var(--orange)' : 'var(--green)'} title={exportLine(status)}

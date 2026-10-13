@@ -34,13 +34,17 @@ export function exportedOf(S) {
 export const EXPORT_EVERY_DAYS = 7
 
 /**
- * How the last complete export stands: { last, days, due } — the time, whole days since, and
- * whether the weekly one is due (never done, or a week old). With no photos at all, a plain
- * export is complete too, so its time counts.
+ * How the newest complete copy outside the phone stands: { last, days, due } — its time, whole
+ * days since, and whether the weekly one is due (never done, or a week old). With no photos at
+ * all, a plain export is complete too, and so is the automatic copy in a folder chosen in iCloud
+ * Drive (`folder`: lib/mobile.js backupFolder(), `at` the last copy written there, `cloud` when
+ * the picker said iCloud). Photos only ever leave in the .zip.
  */
-export function exportStatus(S, now = Date.now(), { hasMedia = false } = {}) {
+export function exportStatus(S, now = Date.now(), { hasMedia = false, folder = null } = {}) {
   const e = exportedOf(S)
-  const last = hasMedia ? e.full : (e.full != null && e.at != null ? Math.max(e.full, e.at) : e.full ?? e.at)
+  const times = hasMedia ? [e.full] : [e.full, e.at, folder?.cloud && folder?.uri ? Number(folder.at) || null : null]
+  const known = times.filter(x => x != null && x > 0)
+  const last = known.length ? Math.max(...known) : null
   const days = last != null ? Math.max(0, Math.floor((now - last) / DAY)) : null
   return { last, days, due: last == null || days >= EXPORT_EVERY_DAYS }
 }
@@ -58,9 +62,9 @@ const REMIND_HOUR = 19   // an evening at home, when the Mac or a charger is nea
  * whatever the auto-backup setting says: the automatic copy in the app's own folder goes when the
  * app goes. `t` words them (i18n), `hasMedia` says whether there are photos to take along.
  */
-export function buildExportNotifications(S, now = new Date(), { hasMedia = false, t = fill } = {}) {
+export function buildExportNotifications(S, now = new Date(), { hasMedia = false, folder = null, t = fill } = {}) {
   const nowMs = now.getTime()
-  const { last } = exportStatus(S, nowMs, { hasMedia })
+  const { last } = exportStatus(S, nowMs, { hasMedia, folder })
   const due = last == null ? nowMs : last + EXPORT_EVERY_DAYS * DAY
   const first = new Date(Math.max(due, nowMs))
   first.setHours(REMIND_HOUR, 0, 0, 0)

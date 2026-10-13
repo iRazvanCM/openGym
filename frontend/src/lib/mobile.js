@@ -212,7 +212,8 @@ export function buildCutNotifications(S, now = new Date()) {
 // and, on a sideloaded iPhone app, renewing it before its seven days run out (lib/renewal.js).
 // They only go out once notifications are allowed for one of the reminders above.
 async function safetyNotifications(S, now = new Date()) {
-  const out = buildExportNotifications(S, now, { hasMedia: referencedHashes(S).size > 0, t })
+  const folder = S.autoBackup ? await backupFolder().catch(() => null) : null
+  const out = buildExportNotifications(S, now, { hasMedia: referencedHashes(S).size > 0, folder, t })
   try {
     const { appSigning, buildRenewalNotifications } = await import('./renewal.js')
     const fmtTime = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -393,7 +394,8 @@ async function pruneAutoBackups({ Filesystem, Directory }, written) {
    the copies off the phone. @capacitor/filesystem cannot write into a picked folder on either. The choice is a fact of this phone, kept in its own private file
    and never in S: S syncs and exports, and a content:// address means nothing anywhere else.
 
-   { uri, label }       the chosen folder, and its name as the picker showed it
+   { uri, label, cloud, at }  the chosen folder, its name as the picker showed it, whether it is
+                        in iCloud Drive (iPhone), and when the last copy reached it
    { lost, lostLabel }  the folder stopped accepting copies; they go to Documents/openGym again
    {}                   the default, Documents/openGym */
 export const BACKUP_FOLDER_FILE = 'opengym-backup-folder.json'
@@ -437,7 +439,7 @@ export async function chooseBackupFolder() {
   if (!picked?.uri) return null
   const before = await backupFolder()
   if (before.uri && before.uri !== picked.uri) await releaseFolder(before.uri)
-  const next = { uri: picked.uri, label: picked.label || null }
+  const next = { uri: picked.uri, label: picked.label || null, ...(picked.cloud ? { cloud: true } : {}) }
   await setFolderState(next)
   return next
 }
@@ -472,6 +474,9 @@ async function writeToChosenFolder(state, day) {
     await releaseFolder(folder.uri)
     return false
   }
+  // When a copy last got there: in iCloud Drive that is a copy off the phone, which the weekly
+  // export reminder counts while there are no photos to leave out (lib/backup-status.js).
+  await setFolderState({ ...folder, at: Date.now() })
   // Pruning waits for a successful write, and only ever touches the app's own dated names.
   try { await folderPlugin.prune({ uri: folder.uri, keep: AUTO_BACKUP_KEEP, pattern: AUTO_BACKUP_NAME.source, written: name }) } catch (e) { /* housekeeping */ }
   return true

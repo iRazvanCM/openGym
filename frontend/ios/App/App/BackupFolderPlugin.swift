@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
  *
  * Usage from JS (lib/mobile.js):
  *   const BackupFolder = registerPlugin('BackupFolder')
- *   const { uri, label } = await BackupFolder.pick()          // {} when cancelled
+ *   const { uri, label, cloud } = await BackupFolder.pick()   // {} when cancelled; cloud: in iCloud Drive
  *   const { ok, uri? } = await BackupFolder.check({ uri })    // still there and writable? (a renewed bookmark)
  *   await BackupFolder.write({ uri, name, data })
  *   await BackupFolder.prune({ uri, keep, pattern, written }) // keeps the newest `keep`
@@ -65,9 +65,13 @@ public class BackupFolderPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
         defer { if granted { url.stopAccessingSecurityScopedResource() } }
         do {
             let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+            // A folder in iCloud Drive is a copy off the phone; the app counts those (lib/backup-status.js).
+            let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey])
+            let cloud = (values?.isUbiquitousItem ?? false) || url.path.contains("/Mobile Documents/")
             call.resolve([
                 "uri": BackupFolderPlugin.prefix + bookmark.base64EncodedString(),
-                "label": url.lastPathComponent
+                "label": url.lastPathComponent,
+                "cloud": cloud
             ])
         } catch {
             call.reject("this folder cannot be kept for later writes", nil, error)

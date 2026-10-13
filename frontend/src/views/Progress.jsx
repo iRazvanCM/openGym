@@ -24,6 +24,7 @@ import Icon from '../components/Icon.jsx'
 import { Button, NumberField, Segmented } from '../components/ui.jsx'
 import { DayChips, dailyLogSheet, fmt1, fmtInt, fmtRate, phaseInfo } from '../components/DailyLog.jsx'
 import { goalSheet } from '../sheets.jsx'
+import PrecutCard from '../components/PrecutCard.jsx'
 
 const update = fn => useStore.getState().update(fn)
 const toast = message => useUI.getState().toast(message)
@@ -307,6 +308,8 @@ export default function Progress() {
       </div>
       <button className="iconbtn" onClick={cutSettingsSheet} aria-label={t('Cut plan')}><Icon name="gear" /></button>
     </div>
+
+    {(!cut.start || cut.start > today) && <PrecutCard />}
 
     {!cut.start && <div className="card">
       <div className="row" style={{ gap: 10, marginBottom: 8 }}>

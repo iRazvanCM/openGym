@@ -43,6 +43,7 @@ import { showsConnection, showsLocalLine } from '../components/SyncBanner.jsx'
 import BackupFolderRow, { useBackupFolder, autoBackupSubtitle } from '../components/BackupFolderRow.jsx'
 import { exportBackupJSON, exportBackupZip } from '../lib/backup-export.js'
 import { SafetyRows } from '../components/SafetyCard.jsx'
+import { checkBackupSheet } from '../components/CheckBackup.jsx'
 import { ServerSyncSection, KeptChangesRows, leaveServer, connectServer, passkeySignIn } from '../components/ServerSync.jsx'
 import { passwordOn, PasswordRow, openPasswordSignIn, openPasswordRegister } from '../components/PasswordAuth.jsx'
 import { usePasskeys, PasskeysRow, DeviceLinkRow, openDeviceLinkRedeem } from '../components/Passkeys.jsx'
@@ -756,7 +757,9 @@ export default function Settings({ page = null, find = null, via = null }) {
       <Section title={t('Back up')}>
         <Row icon="share" iconTint="var(--blue)" title={t('Export backup (JSON)')} subtitle={hasMedia ? t('Without photos and videos') : undefined} accessory="chevron" onClick={doExport} />
         {hasMedia && <Row icon="share" iconTint="var(--blue)" title={t('Export with photos & videos (.zip)')} accessory="chevron" onClick={doExportZip} />}
-        <SafetyRows />
+        <SafetyRows folder={S.autoBackup ? backupDir : null} />
+        <Row icon="checkCircle" iconTint="var(--green)" title={t('Check a backup')}
+          subtitle={t('Open an exported file to see that it reads and what it holds, without importing it.')} accessory="chevron" onClick={checkBackupSheet} />
         {/* 14 is AUTO_BACKUP_KEEP in lib/mobile.js, written out because the Settings tests mock
             that module wholesale; mobile.autobackup.test.js pins the two together. */}
         {MOBILE && <Row icon="folder" iconTint="var(--blue)" title={t('Auto-backup on changes')}

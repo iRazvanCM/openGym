@@ -25,6 +25,14 @@ describe('exports', () => {
     expect(exportStatus(S, now, { hasMedia: false })).toMatchObject({ days: 2, due: false })
     expect(exportStatus({ exported: { at: now - 6.5 * DAY } }, now)).toMatchObject({ days: 6, due: false })
   })
+
+  it('counts the automatic copy in an iCloud Drive folder while there are no photos to leave out', () => {
+    const now = at('2026-11-20')
+    const folder = { uri: 'bookmark:x', cloud: true, at: now - DAY }
+    expect(exportStatus({}, now, { folder })).toMatchObject({ days: 1, due: false })
+    expect(exportStatus({}, now, { folder, hasMedia: true })).toMatchObject({ last: null, due: true })
+    expect(exportStatus({}, now, { folder: { ...folder, cloud: false } }).due).toBe(true)
+  })
 })
 
 describe('the weekly export reminder', () => {
