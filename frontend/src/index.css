@@ -2397,6 +2397,14 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .ci-hist span{color:var(--label-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
 .ci-hist i{font-style:normal;font-variant-numeric:tabular-nums;color:var(--label)}
 
+.zone{margin:0 0 12px}
+.zone-bar{position:relative;display:flex;height:10px;border-radius:99px;overflow:visible;margin:6px 0 6px}
+.zone-bar span{height:100%}
+.zone-bar .g{background:#34c759;border-radius:99px 0 0 99px}
+.zone-bar .y{background:#ffcc00}
+.zone-bar .r{background:#ff3b30;border-radius:0 99px 99px 0}
+.zone-bar i{position:absolute;top:-4px;width:4px;height:18px;margin-inline-start:-2px;border-radius:2px;background:var(--label);box-shadow:0 0 0 2px var(--surface)}
+
 /* ------------------------------------------------------- data safety (backups, renewal) -- */
 .safety-card{padding:6px 14px}
 .safety-row{display:flex;align-items:center;gap:12px;padding:10px 0;cursor:pointer}

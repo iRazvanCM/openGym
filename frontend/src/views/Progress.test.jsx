@@ -78,4 +78,17 @@ describe('Progress', () => {
     expect(host.textContent).toContain('The break, all told')
     expect(host.textContent).toMatch(/held from .* over the break/)
   })
+
+  it('after the cut: the zone against the end weight, and a mini-cut from the red one', () => {
+    const today = todayISO(), from = addDays(today, -20)
+    const bodyweight = Array.from({ length: 21 }, (_, i) => ({ d: addDays(from, i), w: 85 + i * 0.15, t: new Date(addDays(from, i) + 'T07:00').getTime() }))
+    useStore.setState(s => ({ S: { ...s.S, unit: 'kg', targetW: 85, measurements: [], dailyLog: [], workouts: [], bodyweight,
+      cut: { start: addDays(today, -150), mode: 'maintain', endW: 85, endedAt: from, kcal: 3000, cutKcal: 1900 } } }))
+    act(() => root.render(<Progress />))
+    expect(host.textContent).toContain('Maintenance · since')
+    expect(host.textContent).toContain('Over the red line')
+    expect(host.querySelector('.zone-bar')).toBeTruthy()
+    act(() => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Start a mini-cut').click() })
+    expect(useStore.getState().S.cut).toMatchObject({ mode: 'cut', start: today, kcal: 1900 })
+  })
 })

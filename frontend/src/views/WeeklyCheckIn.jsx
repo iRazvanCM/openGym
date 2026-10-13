@@ -87,7 +87,7 @@ export default function WeeklyCheckIn() {
     nav(-1)
   }
 
-  const info = phaseInfo(r.phase)
+  const info = phaseInfo(r.phase, r.zone)
   const kcalTone = brief.kcal.n ? (Math.abs(brief.kcal.avg - cut.kcal) <= 150 ? 'good' : 'warn') : ''
 
   return <div className="narrow">
@@ -142,7 +142,8 @@ export default function WeeklyCheckIn() {
       {prop.kind === 'kcal' && <>
         <div className="ci-eq"><span>{fmtInt(prop.from)}</span><Icon name="chevronRight" /><b>{fmtInt(prop.kcal)}</b><i>kcal</i></div>
         <div className="small muted" style={{ lineHeight: 1.45 }}>
-          {prop.early
+          {prop.maintain ? t('Towards your maintenance of about {0} kcal, at most 300 a week.', fmtInt(prop.target))
+            : prop.early
             ? t('The pace has been outside {0}–{1} a week for three weeks, and maintenance is not worked out yet: a small step, 100 kcal.', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + unit)
             : t('Maintenance is about {0} kcal. For {1} a week the plan wants about {2} kcal; one step of at most {3} at a time, which loses about {4} a week.', fmtInt(prop.tdee), fmt1(r.rateMid) + ' ' + unit, fmtInt(prop.want), MAX_STEP, fmt1(prop.rate) + ' ' + unit)}
         </div>
@@ -151,9 +152,12 @@ export default function WeeklyCheckIn() {
         <div className="ci-eq"><span>{fmtInt(cut.steps)}</span><Icon name="chevronRight" /><b>{fmtInt(prop.steps)}</b><i>{t('steps')}</i></div>
         <div className="small muted" style={{ lineHeight: 1.45 }}>{t('The calories are at your floor of {0}. More movement instead of less food.', fmtInt(cut.minKcal))}</div>
       </>}
+      {prop.kind === 'minicut' && <div className="small" style={{ lineHeight: 1.45 }}>{t('More than {0} over the end weight: a mini-cut of three to four weeks. Start it on Progress.', fmt1(r.zone?.yellow ?? 2.3) + ' ' + unit)}</div>}
       {prop.kind === 'keep' && <>
         <div className="ci-eq"><b>{fmtInt(cut.kcal)}</b><i>kcal</i></div>
-        <div className="small muted" style={{ lineHeight: 1.45 }}>{prop.early
+        <div className="small muted" style={{ lineHeight: 1.45 }}>{prop.maintain
+          ? (r.zone?.zone === 'yellow' ? t('Above the green zone: hold the calories and log every bite for two weeks.') : t('At maintenance. Keep weighing every morning.'))
+          : prop.early
           ? t('Keep the calories. Maintenance is worked out after about three weeks of logging; until then only a pace well off the range changes them.')
           : t('Keep the calories: at your maintenance of about {0} kcal they lose about {1} a week, inside the range.', fmtInt(prop.tdee), fmt1(prop.rate) + ' ' + unit)}</div>
       </>}

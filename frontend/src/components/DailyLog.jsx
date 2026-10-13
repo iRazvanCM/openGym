@@ -30,9 +30,12 @@ export const fmtInt = n => (n == null ? '–' : Math.round(n).toLocaleString(dat
 /** A rate or a percentage: always one decimal, so a steady 1.0 kg a week does not read as "1". */
 export const fmt1 = n => (n == null ? '–' : (Math.round(n * 10) / 10).toLocaleString(dateLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }))
 
-/** How the screens name and colour where the cut stands (cutReport's `phase`). */
-export function phaseInfo(phase) {
+/** How the screens name and colour where the cut stands (cutReport's `phase`, and after it the zone). */
+export function phaseInfo(phase, zone = null) {
   switch (phase) {
+    case 'maintain': return zone?.zone === 'red' ? { label: t('Over the red line'), tone: 'bad', icon: 'warning' }
+      : zone?.zone === 'yellow' ? { label: t('Drifting up'), tone: 'warn', icon: 'arrowUp' }
+        : { label: t('Holding'), tone: 'good', icon: 'checkCircle' }
     case 'ok': return { label: t('On track'), tone: 'good', icon: 'checkCircle' }
     case 'early': return { label: t('First week'), tone: 'info', icon: 'hourglass' }
     case 'slow': return { label: t('Slower this week'), tone: 'warn', icon: 'gauge' }
@@ -275,7 +278,7 @@ export function DailyLogCard() {
   const cut = cutOf(S)
   const logged = logFor(S, today)
   const report = useMemo(() => cutReport(S, today), [S, today])
-  const info = phaseInfo(report.phase)
+  const info = phaseInfo(report.phase, report.zone)
   const unit = report.unit
   const nut = dayNutrition(S, today)
   const focus = currentFocus(S, today)

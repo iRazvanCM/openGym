@@ -26,6 +26,7 @@ import { Button, NumberField, Segmented } from '../components/ui.jsx'
 import { DayChips, dailyLogSheet, fmt1, fmtInt, fmtRate, phaseInfo } from '../components/DailyLog.jsx'
 import { goalSheet } from '../sheets.jsx'
 import PrecutCard from '../components/PrecutCard.jsx'
+import { finishCut, startMiniCut } from '../lib/maintain.js'
 
 const update = fn => useStore.getState().update(fn)
 const toast = message => useUI.getState().toast(message)
@@ -161,6 +162,8 @@ function CutSettings({ close }) {
     <div style={{ height: 16 }} />
     <Button variant="primary" onClick={save}>{t('Save')}</Button>
     <div style={{ height: 6 }} />
+    {cut.start && cut.mode !== 'maintain' && <Button variant="ghost" icon="flag" onClick={() => { close(); finishSheet(cutReport(useStore.getState().S, today)) }}>{t('End the cut: maintenance')}</Button>}
+    {cut.mode === 'maintain' && <Button variant="ghost" icon="flag" onClick={() => { update(s => { s.cut = startMiniCut(s, { today }) }); toast(t('Cutting again from today.')); close() }}>{t('Back to cutting')}</Button>}
     <Button variant="ghost" className="dim" onClick={() => setV(x => ({ ...x, ...CUT_DEFAULTS, start: x.start, goal: x.goal, breaks: x.breaks, checkInDay: x.checkInDay, rateMin: r1(CUT_DEFAULTS.rateMin * per), rateMax: r1(CUT_DEFAULTS.rateMax * per) }))}>{t('Reset targets to the plan')}</Button>
   </>
 }
@@ -208,8 +211,51 @@ function BreakResult({ b, unit, per }) {
   </div>
 }
 
+/* Ending the cut: maintenance straight away, or a third of the way now and the rest at the check-ins. */
+function FinishCut({ r, close }) {
+  const today = todayISO()
+  const tdee = r.tdee.ready ? r.tdee.tdee : r.cut.maintenance
+  const go = gradual => {
+    update(s => { s.cut = finishCut(s, { trendW: r.trendW, tdee, today, gradual }) })
+    toast(t('Maintenance from today. Keep weighing every morning.'))
+    close()
+  }
+  const third = Math.round((r.cut.kcal + (Math.round(tdee / 10) * 10 - r.cut.kcal) / 3) / 10) * 10
+  return <>
+    <h3 style={{ marginBottom: 4 }}>{t('End the cut')}</h3>
+    <div className="muted small" style={{ marginBottom: 14, lineHeight: 1.5 }}>
+      {t('From today the trend is held at {0}. Green up to +{1}, yellow up to +{2} (two weeks of full logging), red above (a mini-cut). Daily weighing is what kept the weight off in the studies; it stays.', fmtNum(r.trendW) + ' ' + r.unit, fmt1(1.4 * r.per), fmt1(2.3 * r.per))}
+    </div>
+    <Button variant="primary" onClick={() => go(false)}>{t('Straight to maintenance: {0} kcal', fmtInt(tdee))}</Button>
+    <div style={{ height: 8 }} />
+    <Button onClick={() => go(true)}>{t('Step up: {0} kcal now, the rest at the check-ins', fmtInt(third))}</Button>
+    <div className="small dim" style={{ marginTop: 10, lineHeight: 1.45 }}>{r.tdee.ready
+      ? t('Maintenance as worked out from your log.') : t('Maintenance is the plan\'s guess: the log has not worked one out yet.')}</div>
+  </>
+}
+
+const finishSheet = r => useUI.getState().openSheet(close => <FinishCut r={r} close={close} />)
+
+/* The zone after the cut, against the end weight: a bar from the end weight to the red line. */
+function ZoneBar({ r }) {
+  const z = r.zone
+  if (!z) return null
+  const max = z.yellow * 1.5
+  const pos = Math.max(0, Math.min(100, (Math.max(-max * 0.2, z.delta) + max * 0.2) / (max * 1.2) * 100))
+  const at = v => (v + max * 0.2) / (max * 1.2) * 100
+  return <div className="zone">
+    <div className="zone-bar">
+      <span className="g" style={{ width: at(z.green) + '%' }} />
+      <span className="y" style={{ width: at(z.yellow) - at(z.green) + '%' }} />
+      <span className="r" style={{ flex: 1 }} />
+      <i style={{ insetInlineStart: pos + '%' }} />
+    </div>
+    <div className="row between small dim"><span>{fmtNum(r.cut.endW)} {r.unit}</span><span>+{fmt1(z.green)}</span><span>+{fmt1(z.yellow)}</span></div>
+  </div>
+}
+
 function Verdict({ r, S }) {
-  const info = phaseInfo(r.phase)
+  const info = phaseInfo(r.phase, r.zone)
   const unit = r.unit
   const cut = r.cut
   const why = {
@@ -222,6 +268,9 @@ function Verdict({ r, S }) {
     break: t('Eat at maintenance until the break ends. The plan stands still meanwhile: nothing falls behind, and the maintenance estimate keeps its value from before the break.'),
     water: t('Back from the break, on the plan\'s calories again. The water the break put on comes off this week, so the scale drops fast: that is not the pace, and nothing is changed for it.'),
     stale: t('Weigh in most mornings (after the toilet, before eating) and the trend comes back.'),
+    maintain: r.zone?.zone === 'red' ? t('More than {0} over the weight the cut ended at. Time for a mini-cut: three to four weeks on the cut\'s calories.', fmt1(r.zone.yellow) + ' ' + unit)
+      : r.zone?.zone === 'yellow' ? t('Between {0} and {1} over the end weight. Two weeks of logging every bite at maintenance brings it back.', fmt1(r.zone.green), fmt1(r.zone.yellow) + ' ' + unit)
+        : t('Within {0} of the weight the cut ended at. Keep weighing every morning: that habit is what kept the weight off.', fmt1(r.zone?.green ?? 1.4) + ' ' + unit),
     noweight: t('Log your weight to start the trend.'),
   }[r.phase]
   const apply = () => {
@@ -265,7 +314,8 @@ function Verdict({ r, S }) {
         {(r.phase === 'stall' || r.phase === 'slow') && r.weekDrops && <div className="small muted">
           {t('Weekly average: {0}, then {1}', ...r.weekDrops.map(x => (x > 0.05 ? '−' : x < -0.05 ? '+' : '') + fmt1(Math.abs(x)) + ' ' + unit))}
         </div>}
-        {r.phase === 'break'
+        {r.maintaining ? <div className="small dim">{t('Held at {0} since {1}', fmtNum(r.cut.endW) + ' ' + unit, fmtDate(r.cut.endedAt, true))}</div>
+          : r.phase === 'break'
           ? <div className="small dim">{t('Aim over the break: the trend at most +{0}', fmt1(r.breakResult?.target ?? 0.5 * r.per) + ' ' + unit)}</div>
           : <div className="small dim">{r.band.mode === 'pct'
             ? t('Aim: {0}–{1}% of body weight a week ({2})', fmt1(r.band.pctMin), fmt1(r.band.pctMax), fmt1(r.rateMin) + '–' + fmt1(r.rateMax) + ' ' + unit)
@@ -275,6 +325,8 @@ function Verdict({ r, S }) {
     </div>
     {why && <p className="cut-vp">{why}</p>}
     {r.breakResult && <BreakResult b={r.breakResult} unit={unit} per={r.per} />}
+    {r.maintaining && <ZoneBar r={r} />}
+    {r.maintaining && r.zone?.zone === 'red' && <Button size="sm" variant="tinted" icon="flag" onClick={() => { update(s => { s.cut = startMiniCut(s, { today: todayISO() }) }); toast(t('Mini-cut from today: {0} kcal.', fmtInt(cutOf(useStore.getState().S).kcal))) }}>{t('Start a mini-cut')}</Button>}
     {r.action && <Button size="sm" variant="tinted" icon="check" onClick={apply}>
       {r.action.kind === 'kcal' ? t('Set calories to {0} (was {1})', fmtInt(r.action.value), fmtInt(cut.kcal)) : t('Set steps to {0} (was {1})', fmtInt(r.action.value), fmtInt(cut.steps))}
     </Button>}
@@ -381,7 +433,7 @@ export default function Progress() {
       <button className="iconbtn" onClick={() => nav('/home')} aria-label={t('Home')}><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, marginInlineStart: 10, minWidth: 0 }}>
         <h1>{t('Progress')}</h1>
-        <div className="sub">{r.started ? t('Cut · week {0} · day {1}', r.week, r.dayN) : t('Weight, food and training together')}</div>
+        <div className="sub">{r.maintaining ? t('Maintenance · since {0}', fmtDate(r.cut.endedAt || today, true)) : r.started ? t('Cut · week {0} · day {1}', r.week, r.dayN) : t('Weight, food and training together')}</div>
       </div>
       <button className="iconbtn" onClick={cutSettingsSheet} aria-label={t('Cut plan')}><Icon name="gear" /></button>
     </div>
@@ -434,7 +486,10 @@ export default function Progress() {
         {!r.eta && r.planEta && <> · {t('about {0} at {1}', fmtDate(r.planEta, true, true), fmt1(r.rateMid) + ' ' + unit + t('/wk'))}</>}
         {r.vsPlan != null && Math.abs(r.vsPlan) >= 0.3 * r.per && <> · <span style={{ color: r.vsPlan < 0 ? 'var(--green)' : 'var(--orange)' }}>{r.vsPlan < 0 ? t('{0} ahead of plan', fmtNum(-r.vsPlan) + ' ' + unit) : t('{0} behind plan', fmtNum(r.vsPlan) + ' ' + unit)}</span>{r.planHeld && <span className="dim"> {t('(as before the break)')}</span>}</>}
       </div>}
-      {r.toGo != null && r.toGo <= 0 && <div className="small" style={{ marginTop: 10, color: 'var(--green)', fontWeight: 600 }}>{t('Goal reached!')}</div>}
+      {r.toGo != null && r.toGo <= 0 && !r.maintaining && <div className="row between" style={{ marginTop: 10, gap: 8 }}>
+        <span className="small" style={{ color: 'var(--green)', fontWeight: 600 }}>{t('Goal reached!')}</span>
+        <Button size="sm" variant="tinted" icon="flag" onClick={() => finishSheet(r)}>{t('Start maintenance')}</Button>
+      </div>}
     </div>}
 
     <Verdict r={r} S={S} />

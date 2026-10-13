@@ -66,6 +66,7 @@ export const CUT_DEFAULTS = Object.freeze({
   mode: 'cut',          // 'cut', or 'maintain' once the goal is reached (lib/maintain.js)
   endW: null,           // the trend weight the maintenance phase holds to, set when it began
   endedAt: null,        // iso date the cut ended and maintenance began
+  cutKcal: null,        // the cut's calories when it ended, for a mini-cut
   keyLifts: [],         // up to six exercise ids the strength check follows; empty = the most-trained ones
 })
 
@@ -91,6 +92,7 @@ export function cutOf(S) {
   if (raw.mode === 'maintain') c.mode = 'maintain'
   if (Number.isInteger(raw.checkInDay) && raw.checkInDay >= 0 && raw.checkInDay <= 6) c.checkInDay = raw.checkInDay
   if (Number(raw.endW) > 0 && Number(raw.endW) < 1000) c.endW = round(Number(raw.endW), 2)
+  if (Number(raw.cutKcal) >= 800 && Number(raw.cutKcal) <= 8000) c.cutKcal = Math.round(Number(raw.cutKcal))
   c.keyLifts = (Array.isArray(raw.keyLifts) ? raw.keyLifts : []).filter(id => typeof id === 'string' && id && id.length <= 64).slice(0, 6)
   const RANGES = {
     kcal: [800, 8000], protein: [20, 500], fat: [10, 400], steps: [500, 60000], cardio: [0, 300], sleep: [3, 14],
@@ -566,6 +568,20 @@ export function strengthCheck(S, today = todayISO(), cut = cutOf(S)) {
   return { ready: true, lifts: top, median: mid, status: mid >= -0.03 ? 'hold' : mid >= -0.07 ? 'slip' : 'drop' }
 }
 
+/* ---------------------------------------------------------------------- maintenance -- */
+
+/** STOP Regain's zones over the end weight, in kg: green up to +1.4 (3 lb), yellow to +2.3 (5 lb). */
+export const ZONE_KG = Object.freeze({ green: 1.4, yellow: 2.3 })
+
+/** The zone of a trend weight against the end weight: { delta, zone, green, yellow } in the unit. */
+export function maintainZone(trendW, endW, per = 1) {
+  if (!(trendW > 0) || !(endW > 0)) return null
+  const delta = trendW - endW
+  const green = ZONE_KG.green * per, yellow = ZONE_KG.yellow * per
+  const d = Math.round(delta * 100) / 100   // 86.4 − 85 is 1.4000000000000057 in floating point
+  return { delta, zone: d <= green ? 'green' : d <= yellow ? 'yellow' : 'red', green, yellow }
+}
+
 /* --------------------------------------------------------------------------- report -- */
 
 /**
@@ -657,9 +673,13 @@ export function cutReport(S, today = todayISO()) {
   const weekDrops = avg0 != null && avg1 != null && avg2 != null ? [avg0 - avg1, avg1 - avg2] : null
   const brkIn3 = cut.breaks.some(b => b.to >= addDays(today, -20) && b.from <= today)
   const slow2 = !!weekDrops && weekDrops.every(x => x < rateMin - slack) && !brkIn3 && (!started || daysBetween(cut.start, today) >= 20)
+  // After the cut: the zone against the end weight is the whole verdict (lib/maintain.js).
+  const maintaining = cut.mode === 'maintain'
+  const zone = maintaining && cut.endW ? maintainZone(trendW, cut.endW, per) : null
   let phase
   if (!trend.length) phase = 'noweight'
   else if (recentWeighIns < 3 || daysBetween(last.d, today) > 7) phase = 'stale'
+  else if (maintaining) phase = 'maintain'
   else if (brk) phase = 'break'
   else if (water) phase = 'water'
   else if (started && dayN <= 7) phase = 'early'
@@ -679,8 +699,10 @@ export function cutReport(S, today = todayISO()) {
   // change again on every visit, and a stall would ratchet the calories down 100 a tap.
   const settling = !!cut.changedAt && cut.changedAt <= today && daysBetween(cut.changedAt, today) < 14
   if (action && settling) action = null
+  if (maintaining) action = null
 
   const advice = []
+  if (maintaining && zone) advice.push({ code: 'zone-' + zone.zone, delta: zone.delta, green: zone.green, yellow: zone.yellow })
   if (settling && (phase === 'stall' || phase === 'slow' || phase === 'fast' || phase === 'gain')) advice.push({ code: 'settling', since: cut.changedAt, until: addDays(cut.changedAt, 14) })
   const upcoming = nextBreak(cut, today)
   if (brk) advice.push({ code: 'break', kcal: maintenance, to: brk.to })
@@ -696,7 +718,7 @@ export function cutReport(S, today = todayISO()) {
   if (week7.alcoholDays > 0) advice.push({ code: 'alcohol', n: week7.alcoholDays })
   if (week7.energy.n >= 4 && week7.hunger.n >= 4 && week7.energy.avg <= 2.2 && week7.hunger.avg >= 3.8) advice.push({ code: 'fatigue' })
   if (strength.ready && strength.status === 'drop') advice.push({ code: 'strength-drop', pct: round(strength.median * 100) })
-  if (tdee.ready && !brk) {
+  if (tdee.ready && !brk && !maintaining) {
     // the calories for the middle of the range — but never under the floor, so the pace that floor
     // gives is what is promised, not the one asked for
     const kcal = kcalForRate(S, tdee.tdee, rateMid, cut)
@@ -708,6 +730,7 @@ export function cutReport(S, today = todayISO()) {
     trend, cur, trendW, lossWk, ratePct, rateMin, rateMax, rateMid, band,
     started, dayN, week, startW, goalW, lost, toGo, pctDone, eta, planEta, planAt, planW, vsPlan, planHeld, weekDrops,
     week7, prev7, tdee, maintenance, strength, phase, action, settling, advice, breakNow: brk, water, breakResult,
+    maintaining, zone,
     streaks: streaks(S, today),
     consistency: consistency(S, today, cut),
   }

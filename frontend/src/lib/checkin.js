@@ -20,6 +20,7 @@ import {
   KCAL_PER_KG, activeBreak, addDays, cutOf, cutReport, daysBetween, isIso, kcalForRate, logFor, summarize, weighIns,
 } from './cut.js'
 import { entryNutrition } from './food.js'
+import { maintainKcal } from './maintain.js'
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
@@ -109,6 +110,8 @@ export function proposeKcal(S, today, r = cutReport(S, today)) {
   const cut = r.cut
   const per = r.per
   const from = cut.kcal
+  // after the cut: towards maintenance, or holding while the trend sits above the green zone
+  if (r.maintaining) return { ...maintainKcal(cut, { tdee: r.tdee.ready ? r.tdee.tdee : null, zone: r.zone?.zone }), from, maintain: true }
   if (r.breakNow) return { kind: 'break', kcal: r.maintenance, from }
   if (r.water) return { kind: 'hold', kcal: from, from }
   const perKg = KCAL_PER_KG / per
