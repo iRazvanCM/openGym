@@ -56,4 +56,11 @@ describe('the checklist before the cut', () => {
     expect(precutShown({ cut: { start: addDays(today, -14) } }, items, today)).toBe(false)
     expect(precutShown({ precut: { hidden: 1 } }, items, today)).toBe(false)
   })
+
+  it('is a cut\'s: never shown to keep a weight or to gain', () => {
+    const items = [{ id: 'x', done: false }]
+    expect(precutShown({ cut: { start: today, mode: 'maintain' } }, items, today)).toBe(false)
+    expect(precutShown({ cut: { start: today, mode: 'gain' } }, items, today)).toBe(false)
+    expect(precutShown({ cut: { start: today, mode: 'cut' } }, items, today)).toBe(true)
+  })
 })

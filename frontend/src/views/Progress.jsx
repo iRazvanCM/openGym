@@ -11,8 +11,8 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
-  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, liftsTrained, logFor,
-  weeklyRows,
+  LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, liftsTrained, logFor,
+  weeklyRows, weighIns,
 } from '../lib/cut.js'
 import { latestMeasurement, toMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
 import { fmtDate, fmtNum, todayISO, weekStartOf, exerciseNameText, DAYS } from '../lib/format.js'
@@ -23,12 +23,13 @@ import { t } from '../lib/i18n.js'
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, NumberField, Segmented } from '../components/ui.jsx'
-import { DayChips, dailyLogSheet, fmt1, fmtInt, fmtRate, phaseInfo } from '../components/DailyLog.jsx'
+import { DayChips, dailyLogSheet, fmt1, fmtInt, fmtPace, fmtRate, phaseInfo } from '../components/DailyLog.jsx'
 import { goalSheet } from '../sheets.jsx'
 import PrecutCard from '../components/PrecutCard.jsx'
 import { finishCut, startMiniCut } from '../lib/maintain.js'
 import { densityReport } from '../lib/density.js'
-import { profileOf } from '../lib/setup.js'
+import { ageOn, profileOf } from '../lib/setup.js'
+import { planFor } from '../lib/onboarding.js'
 
 const update = fn => useStore.getState().update(fn)
 const toast = message => useUI.getState().toast(message)
@@ -40,8 +41,10 @@ const pct = x => (x == null ? '–' : (x > 0 ? '+' : x < 0 ? '−' : '') + Math.
 /* ============================================================== cut settings == */
 
 function CutSettings({ close }) {
+  const nav = useNavigate()
   const S = useStore(s => s.S)
   const cut = cutOf(S)
+  const gaining = cut.mode === 'gain'
   const per = S.unit === 'lb' ? LB_PER_KG : 1
   const unit = S.unit === 'lb' ? 'lb' : 'kg'
   const r1 = n => Math.round(n * 10) / 10
@@ -56,6 +59,17 @@ function CutSettings({ close }) {
   const set = (k, val) => setV(x => ({ ...x, [k]: val }))
   const today = todayISO()
 
+  // What the person's own numbers work out to today (lib/onboarding.js): the profile, the latest
+  // weight, the goal and the pace set — for the targets to go back to after hand changes.
+  const mine = (() => {
+    const p = profileOf(S)
+    const w = weighIns(S.bodyweight).at(-1)?.w
+    if (!p.sex || !p.born || !p.heightCm || !(w > 0)) return null
+    const goal = cut.mode === 'cut' ? 'lose' : cut.mode
+    return planFor({ sex: p.sex, age: ageOn(p.born, today), heightCm: p.heightCm, weightKg: w / per, activity: p.activity, goal,
+      goalKg: S.targetW > 0 ? S.targetW / per : null, paceKg: goal === 'maintain' ? null : (cut.rateMin + cut.rateMax) / 2 })
+  })()
+
   // The holidays coming up next: 23 December to 1 January.
   const xmasFrom = (() => { const y = Number(today.slice(0, 4)) - (today.slice(5) <= '01-01' ? 1 : 0); return `${y}-12-23` })()
   const xmasTo = addDays(xmasFrom, 9)
@@ -65,8 +79,9 @@ function CutSettings({ close }) {
   }
 
   const save = () => {
-    if (v.rateMode === 'kg' && (v.rateMin == null || v.rateMax == null || v.rateMin >= v.rateMax)) { toast(t('The lowest weekly loss must be below the highest')); return }
-    if (v.rateMode === 'pct' && (v.ratePctMin == null || v.ratePctMax == null || v.ratePctMin >= v.ratePctMax)) { toast(t('The lowest weekly loss must be below the highest')); return }
+    const badRange = gaining ? t('The lowest weekly gain must be below the highest') : t('The lowest weekly loss must be below the highest')
+    if (v.rateMode === 'kg' && (v.rateMin == null || v.rateMax == null || v.rateMin >= v.rateMax)) { toast(badRange); return }
+    if (v.rateMode === 'pct' && (v.ratePctMin == null || v.ratePctMax == null || v.ratePctMin >= v.ratePctMax)) { toast(badRange); return }
     if (v.start && !isIso(v.start)) { toast(t('Choose a valid date')); return }
     const changed = v.kcal !== cut.kcal || v.steps !== cut.steps
     update(s => {
@@ -94,8 +109,8 @@ function CutSettings({ close }) {
   </label>
 
   return <>
-    <h3 style={{ marginBottom: 4 }}>{t('Cut plan')}</h3>
-    <div className="muted small" style={{ marginBottom: 14 }}>{t('What Progress measures your days against. Empty fields go back to the plan\'s defaults.')}</div>
+    <h3 style={{ marginBottom: 4 }}>{gaining ? t('Gain plan') : cut.mode === 'maintain' ? t('Maintenance plan') : t('Cut plan')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>{t('What Progress measures your days against.')}</div>
 
     <label className="measure-date">
       <span>{t('Start date')}</span>
@@ -120,19 +135,21 @@ function CutSettings({ close }) {
       {num('maintenance', t('Maintenance guess'), 'kcal')}
     </div>
 
-    <label className="sect-t">{t('Weekly loss aimed for')}</label>
+    <label className="sect-t">{gaining ? t('Weekly gain aimed for') : t('Weekly loss aimed for')}</label>
     <Segmented className="seg-range" value={v.rateMode} onChange={m => set('rateMode', m)}
       options={[{ value: 'kg', label: unit + t('/wk') }, { value: 'pct', label: t('% of body weight') }]} />
     <div className="measure-form" style={{ marginTop: 8 }}>
       {v.rateMode === 'kg' ? <>
-        {num('rateMin', t('Lose at least'), unit + t('/wk'), { decimal: true })}
-        {num('rateMax', t('Lose at most'), unit + t('/wk'), { decimal: true })}
+        {num('rateMin', gaining ? t('Gain at least') : t('Lose at least'), unit + t('/wk'), { decimal: true })}
+        {num('rateMax', gaining ? t('Gain at most') : t('Lose at most'), unit + t('/wk'), { decimal: true })}
       </> : <>
-        {num('ratePctMin', t('Lose at least'), t('%/wk'), { decimal: true })}
-        {num('ratePctMax', t('Lose at most'), t('%/wk'), { decimal: true })}
+        {num('ratePctMin', gaining ? t('Gain at least') : t('Lose at least'), t('%/wk'), { decimal: true })}
+        {num('ratePctMax', gaining ? t('Gain at most') : t('Lose at most'), t('%/wk'), { decimal: true })}
       </>}
     </div>
-    <div className="muted small" style={{ margin: '8px 2px 16px', lineHeight: 1.45 }}>{v.rateMode === 'kg'
+    <div className="muted small" style={{ margin: '8px 2px 16px', lineHeight: 1.45 }}>{gaining
+      ? t('A lean gain is slow: about 0.25–0.5 kg a week. Faster than that, most of what comes on is fat.')
+      : v.rateMode === 'kg'
       ? t('A share of body weight slows down in kilos as you get lighter: 0.5–1% a week is the range linked to keeping muscle.')
       : t('In kilos this is less as the weight comes down: 0.7–1% is about 0.74–1.06 kg a week at 106 kg, 0.6–0.85 at 85.')}</div>
 
@@ -142,6 +159,7 @@ function CutSettings({ close }) {
     </div>
     <div className="muted small" style={{ margin: '8px 2px 16px' }}>{t('The maintenance guess is used until Progress works yours out from your log — about three weeks in.')}</div>
 
+    {cut.mode === 'cut' && <>
     <label className="sect-t">{t('Diet breaks')}</label>
     <div className="sect-b" style={{ marginBottom: 10 }}>
       {v.breaks.map(b => <div className="lrow" key={b.from}>
@@ -160,13 +178,15 @@ function CutSettings({ close }) {
       <Button size="sm" icon="plus" onClick={() => addBreak(v.bFrom, v.bTo)} disabled={!v.bFrom || !v.bTo}>{t('Add break')}</Button>
       {!v.breaks.some(b => b.from === xmasFrom) && <Button size="sm" variant="tinted" icon="sun" onClick={() => addBreak(xmasFrom, xmasTo)}>{t('Add the holidays ({0} – {1})', fmtDate(xmasFrom, true), fmtDate(xmasTo, true))}</Button>}
     </div>
+    </>}
 
     <div style={{ height: 16 }} />
     <Button variant="primary" onClick={save}>{t('Save')}</Button>
     <div style={{ height: 6 }} />
-    {cut.start && cut.mode !== 'maintain' && <Button variant="ghost" icon="flag" onClick={() => { close(); finishSheet(cutReport(useStore.getState().S, today)) }}>{t('End the cut: maintenance')}</Button>}
+    <Button variant="ghost" icon="target" onClick={() => { close(); nav('/setup') }}>{t('Change my goal')}</Button>
+    {cut.start && cut.mode === 'cut' && <Button variant="ghost" icon="flag" onClick={() => { close(); finishSheet(cutReport(useStore.getState().S, today)) }}>{t('End the cut: maintenance')}</Button>}
     {cut.mode === 'maintain' && <Button variant="ghost" icon="flag" onClick={() => { update(s => { s.cut = startMiniCut(s, { today }) }); toast(t('Cutting again from today.')); close() }}>{t('Back to cutting')}</Button>}
-    <Button variant="ghost" className="dim" onClick={() => setV(x => ({ ...x, ...CUT_DEFAULTS, start: x.start, goal: x.goal, breaks: x.breaks, checkInDay: x.checkInDay, rateMin: r1(CUT_DEFAULTS.rateMin * per), rateMax: r1(CUT_DEFAULTS.rateMax * per) }))}>{t('Reset targets to the plan')}</Button>
+    {mine && <Button variant="ghost" className="dim" onClick={() => setV(x => ({ ...x, kcal: mine.kcal, protein: mine.protein, fat: mine.fat, minKcal: Math.min(mine.floor, mine.kcal), maintenance: mine.maintenance }))}>{t('Reset targets to my numbers')}</Button>}
   </>
 }
 
@@ -224,7 +244,7 @@ function FinishCut({ r, close }) {
   }
   const third = Math.round((r.cut.kcal + (Math.round(tdee / 10) * 10 - r.cut.kcal) / 3) / 10) * 10
   return <>
-    <h3 style={{ marginBottom: 4 }}>{t('End the cut')}</h3>
+    <h3 style={{ marginBottom: 4 }}>{r.gaining ? t('Hold this weight') : t('End the cut')}</h3>
     <div className="muted small" style={{ marginBottom: 14, lineHeight: 1.5 }}>
       {t('From today the trend is held at {0}. Green up to +{1}, yellow up to +{2} (two weeks of full logging), red above (a mini-cut). Daily weighing is what kept the weight off in the studies; it stays.', fmtNum(r.trendW) + ' ' + r.unit, fmt1(1.4 * r.per), fmt1(2.3 * r.per))}
     </div>
@@ -257,22 +277,25 @@ function ZoneBar({ r }) {
 }
 
 function Verdict({ r, S }) {
-  const info = phaseInfo(r.phase, r.zone)
+  const info = phaseInfo(r.phase, r.zone, r.gaining)
   const unit = r.unit
   const cut = r.cut
   const why = {
     ok: t('Right in the range the plan aims for. Keep everything as it is.'),
-    early: t('The first week is mostly water and glycogen, so the scale drops fast. The real pace shows from week two.'),
+    early: r.gaining ? t('The first week puts on water and glycogen with the extra food, so the scale jumps. The real pace shows from week two.')
+      : t('The first week is mostly water and glycogen, so the scale drops fast. The real pace shows from week two.'),
     slow: t('Below the range this week. One slow week is often water: keep logging carefully and give it another week.'),
     stall: r.settling ? t('Below the range two weeks running, but the plan has just changed. Give the change its two weeks.') : t('Below the range two weeks running. Time for a small change.'),
-    fast: r.action ? t('Faster than the range and your lifts are slipping: eat a little more.') : t('Faster than the range. Fine while your lifts hold and you feel good; watch recovery.'),
+    fast: r.gaining ? (r.action ? t('Gaining faster than the range two weeks running: past it, more of it is fat. Eat a little less.') : t('Gaining faster than the range this week. One week can be water; if it holds, eat a little less.'))
+      : r.action ? t('Faster than the range and your lifts are slipping: eat a little more.') : t('Faster than the range. Fine while your lifts hold and you feel good; watch recovery.'),
     gain: t('The trend is going up. Check that every bite and drink is logged before changing the plan.'),
+    loss: t('The trend is going down. Eat a little more: check that every meal is logged, and that it is all of it.'),
     break: t('Eat at maintenance until the break ends. The plan stands still meanwhile: nothing falls behind, and the maintenance estimate keeps its value from before the break.'),
     water: t('Back from the break, on the plan\'s calories again. The water the break put on comes off this week, so the scale drops fast: that is not the pace, and nothing is changed for it.'),
     stale: t('Weigh in most mornings (after the toilet, before eating) and the trend comes back.'),
-    maintain: r.zone?.zone === 'red' ? t('More than {0} over the weight the cut ended at. Time for a mini-cut: three to four weeks on the cut\'s calories.', fmt1(r.zone.yellow) + ' ' + unit)
-      : r.zone?.zone === 'yellow' ? t('Between {0} and {1} over the end weight. Two weeks of logging every bite at maintenance brings it back.', fmt1(r.zone.green), fmt1(r.zone.yellow) + ' ' + unit)
-        : t('Within {0} of the weight the cut ended at. Keep weighing every morning: that habit is what kept the weight off.', fmt1(r.zone?.green ?? 1.4) + ' ' + unit),
+    maintain: r.zone?.zone === 'red' ? t('More than {0} over the weight you are holding. Time for a mini-cut: three to four weeks in a deficit.', fmt1(r.zone.yellow) + ' ' + unit)
+      : r.zone?.zone === 'yellow' ? t('Between {0} and {1} over the weight you are holding. Two weeks of logging every bite at maintenance brings it back.', fmt1(r.zone.green), fmt1(r.zone.yellow) + ' ' + unit)
+        : t('Within {0} of the weight you are holding. Keep weighing every morning: that habit is what keeps the weight steady.', fmt1(r.zone?.green ?? 1.4) + ' ' + unit),
     noweight: t('Log your weight to start the trend.'),
   }[r.phase]
   const apply = () => {
@@ -301,7 +324,8 @@ function Verdict({ r, S }) {
       case 'alcohol': return plural(a.n, '{0} day with alcohol this week.', '{0} days with alcohol this week.')
       case 'fatigue': return t('Low energy and high hunger all week. A week or two at maintenance (a diet break) can reset both.')
       case 'strength-drop': return t('Your main lifts are down {0}% from the start. Keep the weights heavy, eat a bit more around training.', Math.abs(a.pct))
-      case 'tdee': return t('Your maintenance is about {0} kcal. Eating {1} kcal a day loses about {2} a week.', fmtInt(a.tdee), fmtInt(a.kcal), fmt1(a.rate) + ' ' + unit)
+      case 'tdee': return a.gain ? t('Your maintenance is about {0} kcal. Eating {1} kcal a day gains about {2} a week.', fmtInt(a.tdee), fmtInt(a.kcal), fmt1(a.rate) + ' ' + unit)
+        : t('Your maintenance is about {0} kcal. Eating {1} kcal a day loses about {2} a week.', fmtInt(a.tdee), fmtInt(a.kcal), fmt1(a.rate) + ' ' + unit)
       default: return null
     }
   }
@@ -498,7 +522,7 @@ export default function Progress() {
       { points: scale, color: 'var(--label-3)', line: false, r: 2.2 },
       { points: line, color: 'var(--acc)', width: 2.6, dots: false },
     ]
-    if (r.started && r.startW != null && r.goalW != null && r.startW > r.goalW) {
+    if (r.started && r.startW != null && r.goalW != null && (r.gaining ? r.startW < r.goalW : r.startW > r.goalW)) {
       const a = cut.start >= from ? cut.start : from
       const b = today
       // flat through each break: the plan stands still there (lib/cut.js dietDays); a pace set as a
@@ -541,9 +565,9 @@ export default function Progress() {
       <button className="iconbtn" onClick={() => nav('/home')} aria-label={t('Home')}><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, marginInlineStart: 10, minWidth: 0 }}>
         <h1>{t('Progress')}</h1>
-        <div className="sub">{r.maintaining ? t('Maintenance · since {0}', fmtDate(r.cut.endedAt || today, true)) : r.started ? t('Cut · week {0} · day {1}', r.week, r.dayN) : t('Weight, food and training together')}</div>
+        <div className="sub">{r.maintaining ? t('Maintenance · since {0}', fmtDate(r.cut.endedAt || today, true)) : r.started ? (r.gaining ? t('Gain · week {0} · day {1}', r.week, r.dayN) : t('Cut · week {0} · day {1}', r.week, r.dayN)) : t('Weight, food and training together')}</div>
       </div>
-      <button className="iconbtn" onClick={cutSettingsSheet} aria-label={t('Cut plan')}><Icon name="gear" /></button>
+      <button className="iconbtn" onClick={cutSettingsSheet} aria-label={t('Your plan')}><Icon name="gear" /></button>
     </div>
 
     {(!cut.start || cut.start > today) && <PrecutCard />}
@@ -574,9 +598,9 @@ export default function Progress() {
           <div className="big">{fmtNum(r.trendW)} <span className="muted" style={{ fontSize: '1rem' }}>{unit}</span></div>
           <div className="small dim" style={{ marginTop: 3 }}>{r.cur.d === today ? t('today') : fmtDate(r.cur.d, true)}{r.cur.w != null && ' · ' + t('scale {0}', fmtNum(r.cur.w))}</div>
         </div>
-        {r.lost != null && <div style={{ textAlign: 'end' }}>
-          <div className="muted small">{t('Lost so far')}</div>
-          <div className="big" style={{ color: r.lost > 0 ? 'var(--green)' : 'var(--label)' }}>{r.lost > 0 ? '−' : '+'}{fmtNum(Math.abs(r.lost))}</div>
+        {r.lost != null && (!r.maintaining || r.cut.cutKcal != null) && <div style={{ textAlign: 'end' }}>
+          <div className="muted small">{r.gaining ? t('Gained so far') : t('Lost so far')}</div>
+          <div className="big" style={{ color: r.lost * (r.gaining ? -1 : 1) > 0 ? 'var(--green)' : 'var(--label)' }}>{r.lost > 0 ? '−' : '+'}{fmtNum(Math.abs(r.lost))}</div>
           <div className="small dim" style={{ marginTop: 3 }}>{t('since {0}', fmtDate(cut.start, true))}</div>
         </div>}
       </div>
@@ -591,7 +615,7 @@ export default function Progress() {
       {r.toGo != null && r.toGo > 0 && <div className="small" style={{ marginTop: 10, color: 'var(--label-2)', lineHeight: 1.45 }}>
         {t('{0} to go', fmtNum(r.toGo) + ' ' + unit)}
         {r.eta && <> · {t('about {0} at this pace', fmtDate(r.eta, true, true))}</>}
-        {!r.eta && r.planEta && <> · {t('about {0} at {1}', fmtDate(r.planEta, true, true), fmt1(r.rateMid) + ' ' + unit + t('/wk'))}</>}
+        {!r.eta && r.planEta && <> · {t('about {0} at {1}', fmtDate(r.planEta, true, true), fmtPace(r.rateMid) + ' ' + unit + t('/wk'))}</>}
         {r.vsPlan != null && Math.abs(r.vsPlan) >= 0.3 * r.per && <> · <span style={{ color: r.vsPlan < 0 ? 'var(--green)' : 'var(--orange)' }}>{r.vsPlan < 0 ? t('{0} ahead of plan', fmtNum(-r.vsPlan) + ' ' + unit) : t('{0} behind plan', fmtNum(r.vsPlan) + ' ' + unit)}</span>{r.planHeld && <span className="dim"> {t('(as before the break)')}</span>}</>}
       </div>}
       {r.toGo != null && r.toGo <= 0 && !r.maintaining && <div className="row between" style={{ marginTop: 10, gap: 8 }}>

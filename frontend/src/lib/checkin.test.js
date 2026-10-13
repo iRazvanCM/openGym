@@ -119,3 +119,34 @@ describe('the week and the focus', () => {
     expect(normalizeCheckIn({ d: 'bad' })).toBeNull()
   })
 })
+
+describe('next week\'s calories on a gain', () => {
+  const gain = (perWeek, kcal = 2500) => {
+    const S = cut({ perWeek: -perWeek, kcal, plan: { mode: 'gain', rateMin: 0.2, rateMax: 0.3, kcal } })
+    S.targetW = 115
+    return S
+  }
+
+  it('keeps them at the pace aimed for', () => {
+    const S = gain(0.25)
+    const p = proposeKcal(S, lastDay(S))
+    expect(p).toMatchObject({ kind: 'keep', gain: true })
+    expect(p.rate).toBeCloseTo(0.25, 1)
+  })
+
+  it('moves up at most 150 when the gain is too slow, down when too fast', () => {
+    const slow = gain(0.1)
+    const p = proposeKcal(slow, lastDay(slow))
+    expect(p).toMatchObject({ kind: 'kcal', from: 2500, kcal: 2500 + MAX_STEP, gain: true })
+    expect(p.want).toBeGreaterThan(2600)
+    const fast = gain(0.6)
+    expect(proposeKcal(fast, lastDay(fast))).toMatchObject({ kind: 'kcal', kcal: 2500 - MAX_STEP, gain: true })
+  })
+
+  it('before maintenance is worked out, 100 more after three slow weeks', () => {
+    const S = gain(0)
+    S.dailyLog = S.dailyLog.map((e, i) => (i % 3 ? { d: e.d, t: e.t } : e))   // too few days for an estimate
+    const p = proposeKcal(S, lastDay(S))
+    expect(p).toMatchObject({ kind: 'kcal', kcal: 2600, early: true, gain: true })
+  })
+})

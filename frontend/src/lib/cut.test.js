@@ -400,3 +400,72 @@ describe('the finer strength check', () => {
     expect(r.strength.causes.map(c => c.code)).toEqual(expect.arrayContaining(['sleep', 'protein']))
   })
 })
+
+describe('a gain', () => {
+  // 65 kg putting weight on, aiming for 0.2–0.3 kg a week up to 75 kg, on 2,800 kcal
+  const gain = (perWeek, days = 35) => cutState({
+    days, from: 65, perDay: perWeek / 7, water: 0, intake: 2800, targetW: 75,
+  })
+  const withPlan = (S, plan = {}) => ({ ...S, cut: { start: S.cut.start, mode: 'gain', rateMin: 0.2, rateMax: 0.3, kcal: 2800, ...plan } })
+
+  it('keeps its own mode and measures the way up', () => {
+    const S = withPlan(gain(0.25))
+    const r = cutReport(S, lastDay(S))
+    expect(cutOf(S).mode).toBe('gain')
+    expect(r.gaining).toBe(true)
+    expect(r.phase).toBe('ok')
+    expect(r.prog).toBeCloseTo(0.25, 1)
+    expect(r.lossWk).toBeLessThan(0)
+    expect(r.lost).toBeLessThan(-1)            // a loss of minus a kilo: a kilo on
+    expect(r.toGo).toBeGreaterThan(8)
+    expect(r.pctDone).toBeGreaterThan(0.08)
+    expect(daysBetween(lastDay(S), r.eta)).toBeGreaterThan(200)
+    expect(r.planAt(lastDay(S))).toBeGreaterThan(r.startW)
+    expect(Math.abs(r.vsPlan)).toBeLessThan(0.3)
+    expect(r.action).toBeNull()
+  })
+
+  it('a gain that stopped asks for 100 kcal more', () => {
+    const S = withPlan(gain(0))
+    const r = cutReport(S, lastDay(S))
+    expect(r.phase).toBe('stall')
+    expect(r.action).toEqual({ kind: 'kcal', value: 2900 })
+  })
+
+  it('going down on a gain is the wrong way', () => {
+    const S = withPlan(gain(-0.3))
+    const r = cutReport(S, lastDay(S))
+    expect(r.phase).toBe('loss')
+    expect(r.action).toEqual({ kind: 'kcal', value: 2900 })
+    expect(r.vsPlan).toBeGreaterThan(0)   // behind the plan's line, which goes up
+  })
+
+  it('two weeks too fast asks for 100 less: past the range, more of it is fat', () => {
+    const S = withPlan(gain(0.8))
+    const r = cutReport(S, lastDay(S))
+    expect(r.phase).toBe('fast')
+    expect(r.action).toEqual({ kind: 'kcal', value: 2700 })
+    expect(r.vsPlan).toBeLessThan(0)      // ahead of the line
+  })
+
+  it('works the calories out over maintenance, with no cut floor and no diet-break advice', () => {
+    const S = withPlan(gain(0.25, 42))
+    S.dailyLog.slice(-7).forEach(e => { e.energy = 2; e.hunger = 4 })
+    const r = cutReport(S, lastDay(S))
+    const tdee = r.advice.find(a => a.code === 'tdee')
+    expect(tdee.gain).toBe(true)
+    expect(tdee.kcal).toBeGreaterThan(tdee.tdee)
+    expect(tdee.rate).toBeCloseTo(0.25, 1)
+    expect(r.advice.some(a => a.code === 'fatigue')).toBe(false)
+    expect(kcalForRate(S, 2500, 0.25, cutOf(S))).toBe(2780)   // 2,500 + 275, rounded
+  })
+
+  it('a cut and a maintenance plan are untouched by it', () => {
+    expect(cutOf({ cut: { mode: 'gain' } }).mode).toBe('gain')
+    expect(cutOf({ cut: { mode: 'bulk' } }).mode).toBe('cut')
+    const S = cutState({ days: 35, perDay: -1 / 7, noise: 0.3 })
+    const r = cutReport(S, lastDay(S))
+    expect(r.gaining).toBe(false)
+    expect(r.prog).toBeCloseTo(r.lossWk, 6)
+  })
+})

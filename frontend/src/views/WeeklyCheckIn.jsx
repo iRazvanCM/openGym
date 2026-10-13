@@ -13,7 +13,7 @@ import { fmtDate, fmtNum, todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import Icon from '../components/Icon.jsx'
 import { Button, NumberField, Switch, TextField } from '../components/ui.jsx'
-import { fmt1, fmtInt, fmtRate, phaseInfo } from '../components/DailyLog.jsx'
+import { fmt1, fmtInt, fmtPace, fmtRate, phaseInfo } from '../components/DailyLog.jsx'
 
 const toast = m => useUI.getState().toast(m)
 const signed = (x, unit) => (x == null ? '–' : (x > 0.05 ? '+' : x < -0.05 ? '−' : '±') + fmt1(Math.abs(x)) + ' ' + unit)
@@ -87,7 +87,7 @@ export default function WeeklyCheckIn() {
     nav(-1)
   }
 
-  const info = phaseInfo(r.phase, r.zone)
+  const info = phaseInfo(r.phase, r.zone, r.gaining)
   const kcalTone = brief.kcal.n ? (Math.abs(brief.kcal.avg - cut.kcal) <= 150 ? 'good' : 'warn') : ''
 
   return <div className="narrow">
@@ -106,7 +106,7 @@ export default function WeeklyCheckIn() {
     </div>
     <div className="tiles">
       <Stat icon="scale" label={t('Weekly average')} value={brief.avgW != null ? fmtNum(brief.avgW) + ' ' + unit : '–'}
-        sub={brief.change != null ? t('{0} on the week before', signed(brief.change, unit)) : t('a week of weigh-ins compares')} tone={brief.change != null && brief.change < -0.05 ? 'good' : ''} />
+        sub={brief.change != null ? t('{0} on the week before', signed(brief.change, unit)) : t('a week of weigh-ins compares')} tone={brief.change != null && (r.gaining ? brief.change > 0.05 : brief.change < -0.05) ? 'good' : ''} />
       <Stat icon="gauge" label={t('Pace')} value={fmtRate(r.lossWk, unit)}
         sub={r.ratePct != null ? t('{0}% of body weight · aim {1}–{2}%', fmt1(Math.abs(r.ratePct)), fmt1(r.band.pctMin), fmt1(r.band.pctMax)) : null} />
       <Stat icon="clipboard" label={t('Logged')} value={brief.kcal.n + ' / 7'} sub={t('weighed {0} / 7', brief.weighIns)} tone={brief.kcal.n >= 6 ? 'good' : 'warn'} />
@@ -145,7 +145,9 @@ export default function WeeklyCheckIn() {
           {prop.maintain ? t('Towards your maintenance of about {0} kcal, at most 300 a week.', fmtInt(prop.target))
             : prop.early
             ? t('The pace has been outside {0}–{1} a week for three weeks, and maintenance is not worked out yet: a small step, 100 kcal.', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + unit)
-            : t('Maintenance is about {0} kcal. For {1} a week the plan wants about {2} kcal; one step of at most {3} at a time, which loses about {4} a week.', fmtInt(prop.tdee), fmt1(r.rateMid) + ' ' + unit, fmtInt(prop.want), MAX_STEP, fmt1(prop.rate) + ' ' + unit)}
+            : prop.gain
+              ? t('Maintenance is about {0} kcal. For {1} a week the plan wants about {2} kcal; one step of at most {3} at a time, which gains about {4} a week.', fmtInt(prop.tdee), fmtPace(r.rateMid) + ' ' + unit, fmtInt(prop.want), MAX_STEP, fmt1(prop.rate) + ' ' + unit)
+              : t('Maintenance is about {0} kcal. For {1} a week the plan wants about {2} kcal; one step of at most {3} at a time, which loses about {4} a week.', fmtInt(prop.tdee), fmtPace(r.rateMid) + ' ' + unit, fmtInt(prop.want), MAX_STEP, fmt1(prop.rate) + ' ' + unit)}
         </div>
       </>}
       {prop.kind === 'steps' && <>
@@ -159,7 +161,9 @@ export default function WeeklyCheckIn() {
           ? (r.zone?.zone === 'yellow' ? t('Above the green zone: hold the calories and log every bite for two weeks.') : t('At maintenance. Keep weighing every morning.'))
           : prop.early
           ? t('Keep the calories. Maintenance is worked out after about three weeks of logging; until then only a pace well off the range changes them.')
-          : t('Keep the calories: at your maintenance of about {0} kcal they lose about {1} a week, inside the range.', fmtInt(prop.tdee), fmt1(prop.rate) + ' ' + unit)}</div>
+          : prop.gain
+            ? t('Keep the calories: at your maintenance of about {0} kcal they gain about {1} a week, inside the range.', fmtInt(prop.tdee), fmt1(prop.rate) + ' ' + unit)
+            : t('Keep the calories: at your maintenance of about {0} kcal they lose about {1} a week, inside the range.', fmtInt(prop.tdee), fmt1(prop.rate) + ' ' + unit)}</div>
       </>}
       {prop.kind === 'break' && <div className="small" style={{ lineHeight: 1.45 }}>{t('Diet break: about {0} kcal a day until {1}. Nothing changes for next week.', fmtInt(prop.kcal), fmtDate(r.breakNow.to, true))}</div>}
       {prop.kind === 'hold' && <div className="small" style={{ lineHeight: 1.45 }}>{t('Water week after the break: {0} kcal, nothing changed for the fast drop on the scale.', fmtInt(prop.kcal))}</div>}

@@ -29,9 +29,14 @@ const toast = message => useUI.getState().toast(message)
 export const fmtInt = n => (n == null ? '–' : Math.round(n).toLocaleString(dateLocale()))
 /** A rate or a percentage: always one decimal, so a steady 1.0 kg a week does not read as "1". */
 export const fmt1 = n => (n == null ? '–' : (Math.round(n * 10) / 10).toLocaleString(dateLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }))
+/** A pace aimed for: one decimal, two when it is a quarter — 0.25 and 0.75 kg a week are paces, 0.3 and 0.8 are not. */
+export const fmtPace = n => (n == null ? '–' : (Math.round(n * 100) / 100).toLocaleString(dateLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 2 }))
 
-/** How the screens name and colour where the cut stands (cutReport's `phase`, and after it the zone). */
-export function phaseInfo(phase, zone = null) {
+/**
+ * How the screens name and colour where the plan stands (cutReport's `phase`, and after a cut the
+ * zone). `gaining`: the plan puts weight on, so going fast is gaining fast and 'loss' the wrong way.
+ */
+export function phaseInfo(phase, zone = null, gaining = false) {
   switch (phase) {
     case 'maintain': return zone?.zone === 'red' ? { label: t('Over the red line'), tone: 'bad', icon: 'warning' }
       : zone?.zone === 'yellow' ? { label: t('Drifting up'), tone: 'warn', icon: 'arrowUp' }
@@ -40,8 +45,9 @@ export function phaseInfo(phase, zone = null) {
     case 'early': return { label: t('First week'), tone: 'info', icon: 'hourglass' }
     case 'slow': return { label: t('Slower this week'), tone: 'warn', icon: 'gauge' }
     case 'stall': return { label: t('Stalled'), tone: 'bad', icon: 'warning' }
-    case 'fast': return { label: t('Losing fast'), tone: 'warn', icon: 'bolt' }
+    case 'fast': return { label: gaining ? t('Gaining fast') : t('Losing fast'), tone: 'warn', icon: 'bolt' }
     case 'gain': return { label: t('Going up'), tone: 'bad', icon: 'arrowUp' }
+    case 'loss': return { label: t('Going down'), tone: 'bad', icon: 'arrowDown' }
     case 'break': return { label: t('Diet break'), tone: 'info', icon: 'sun' }
     case 'water': return { label: t('Water week'), tone: 'info', icon: 'sunrise' }
     case 'stale': return { label: t('Weigh in to update'), tone: 'neutral', icon: 'scale' }
@@ -279,7 +285,7 @@ export function DailyLogCard() {
   const cut = cutOf(S)
   const logged = logFor(S, today)
   const report = useMemo(() => cutReport(S, today), [S, today])
-  const info = phaseInfo(report.phase, report.zone)
+  const info = phaseInfo(report.phase, report.zone, report.gaining)
   const unit = report.unit
   const nut = dayNutrition(S, today)
   const focus = currentFocus(S, today)
@@ -308,7 +314,7 @@ export function DailyLogCard() {
       <Icon name="chevronRight" className="chev" />
     </div>}
     {!report.trend.length && <div className="dl-trend" {...tappable(() => nav(S.cut ? '/progress' : '/setup'))}>
-      <span className="muted small" style={{ flex: 1 }}>{S.cut ? t('Open Progress to see your cut') : t('Set up your plan: targets, goal and reminders')}</span>
+      <span className="muted small" style={{ flex: 1 }}>{!S.cut ? t('Set up your plan: targets, goal and reminders') : cut.mode === 'cut' ? t('Open Progress to see your cut') : t('Weigh in to start your trend')}</span>
       <Icon name="chevronRight" className="chev" />
     </div>}
   </div>

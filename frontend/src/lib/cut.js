@@ -64,7 +64,7 @@ export const CUT_DEFAULTS = Object.freeze({
   ratePctMin: 0.7,      // % of body weight a week, when rateMode is 'pct'
   ratePctMax: 1.0,
   checkInDay: null,     // the weekly check-in's weekday (0 Sunday … 6 Saturday); null = the start's weekday
-  mode: 'cut',          // 'cut', or 'maintain' once the goal is reached (lib/maintain.js)
+  mode: 'cut',          // 'cut'; 'maintain' once the goal is reached (lib/maintain.js) or chosen at the start; 'gain' to put weight on
   endW: null,           // the trend weight the maintenance phase holds to, set when it began
   endedAt: null,        // iso date the cut ended and maintenance began
   cutKcal: null,        // the cut's calories when it ended, for a mini-cut
@@ -90,7 +90,7 @@ export function cutOf(S) {
   if (isIso(raw.changedAt)) c.changedAt = raw.changedAt
   if (isIso(raw.endedAt)) c.endedAt = raw.endedAt
   if (raw.rateMode === 'pct') c.rateMode = 'pct'
-  if (raw.mode === 'maintain') c.mode = 'maintain'
+  if (raw.mode === 'maintain' || raw.mode === 'gain') c.mode = raw.mode
   if (Number.isInteger(raw.checkInDay) && raw.checkInDay >= 0 && raw.checkInDay <= 6) c.checkInDay = raw.checkInDay
   if (Number(raw.endW) > 0 && Number(raw.endW) < 1000) c.endW = round(Number(raw.endW), 2)
   if (Number(raw.cutKcal) >= 800 && Number(raw.cutKcal) <= 8000) c.cutKcal = Math.round(Number(raw.cutKcal))
@@ -536,9 +536,10 @@ export function expenditure(S, today = todayISO(), cut = cutOf(S), trend = weigh
   return { ready: true, tdee: round(tdee / 10) * 10, intake: round(intake), span, logged: kcal.length, from: days[0], to: asOf, held, asOf }
 }
 
-/** Daily calories that lose `rate` (unit a week) at maintenance `tdee`, never under the floor. */
-export const kcalForRate = (S, tdee, rate, cut = cutOf(S)) =>
-  Math.max(cut.minKcal, round((tdee - rate * (KCAL_PER_KG / unitPerKg(S)) / 7) / 10) * 10)
+/** The calories for a weekly pace at a maintenance: under it on a cut (never under the floor), over it on a gain. */
+export const kcalForRate = (S, tdee, rate, cut = cutOf(S)) => (cut.mode === 'gain'
+  ? round((tdee + rate * (KCAL_PER_KG / unitPerKg(S)) / 7) / 10) * 10
+  : Math.max(cut.minKcal, round((tdee - rate * (KCAL_PER_KG / unitPerKg(S)) / 7) / 10) * 10))
 
 /* ------------------------------------------------------------------------- strength -- */
 
@@ -606,19 +607,25 @@ export function maintainZone(trendW, endW, per = 1) {
  * Everything the Progress screen and the Home card show, worked out once:
  *   trend, trendW, lossWk (unit a week, positive while losing), ratePct, startW, goalW, lost, toGo,
  *   pctDone, eta, planEta, vsPlan, phase, action, advice, tdee, week7, prev7, streaks, strength.
- * `phase`: noweight | stale | break | early | gain | slow | stall | fast | ok.
+ * `phase`: noweight | stale | maintain | break | water | early | gain | loss | slow | stall | fast | ok.
  * `action`: the one change worth making now, { kind: 'kcal' | 'steps', value } or null.
  * `advice`: what else stands out, [{ code, ...numbers }] — the screen words them.
+ * On a gain (cut.mode 'gain') the numbers run the other way: `prog` is the week's change in the
+ * goal's direction (the loss on a cut, the gain on a gain), the band a gain aimed for, `toGo` and
+ * `vsPlan` measured upwards, and the wrong way is 'loss' rather than 'gain'.
  */
 export function cutReport(S, today = todayISO()) {
   const cut = cutOf(S)
   const per = unitPerKg(S)
+  const gaining = cut.mode === 'gain'
+  const dir = gaining ? -1 : 1
   const trend = weightTrend(S?.bodyweight)
   const cur = trendOn(trend, today)
   const last = trend.length ? trend[trend.length - 1] : null
   const trendW = cur ? cur.L : null
   const lossWk = cur ? -cur.T * 7 : null
   const ratePct = trendW && lossWk != null ? lossWk / trendW * 100 : null
+  const prog = lossWk == null ? null : lossWk * dir
 
   const started = !!cut.start && cut.start <= today
   const dayN = started ? daysBetween(cut.start, today) + 1 : null
@@ -628,27 +635,29 @@ export function cutReport(S, today = todayISO()) {
   const startW = atStart ? atStart.L : firstAfter ? firstAfter.w : null
   const goalW = Number(S?.targetW) > 0 ? Number(S.targetW) : null
   const lost = startW != null && trendW != null ? startW - trendW : null
-  const toGo = goalW != null && trendW != null ? trendW - goalW : null
-  const pctDone = startW != null && goalW != null && trendW != null && startW > goalW ? clamp((startW - trendW) / (startW - goalW), 0, 1) : null
+  const toGo = goalW != null && trendW != null ? (trendW - goalW) * dir : null
+  const pctDone = startW != null && goalW != null && trendW != null && (startW - goalW) * dir > 0 ? clamp((startW - trendW) / (startW - goalW), 0, 1) : null
 
   const band = rateBand(cut, trendW ?? startW, per)
   const rateMin = band.min, rateMax = band.max, rateMid = band.mid
   const slack = 0.1 * per
   // The dates ahead skip the break days still to come; the plan's line stands still through a break.
-  const weeksLeft = toGo != null && toGo > 0 && lossWk > 0.05 * per ? toGo / lossWk : null
+  const weeksLeft = toGo != null && toGo > 0 && prog > 0.05 * per ? toGo / prog : null
   const eta = weeksLeft != null && cur ? addDietDays(cut, cur.d, weeksLeft * 7) : null
   // A pace in kilos is a straight line; a share of the body weight a curve that flattens as it goes.
   const pctMid = (cut.ratePctMin + cut.ratePctMax) / 200
   const pct = cut.rateMode === 'pct'
-  const weeksTo = toGo != null && toGo > 0 ? (pct ? Math.log(goalW / trendW) / Math.log(1 - pctMid) : toGo / rateMid) : null
+  const weeksTo = toGo != null && toGo > 0 ? (pct ? Math.log(goalW / trendW) / Math.log(1 - dir * pctMid) : toGo / rateMid) : null
   const planEta = weeksTo != null ? addDietDays(cut, today, weeksTo * 7) : null
   const planAt = d => {
     if (!started || startW == null) return null
     const wk = dietDays(cut, cut.start, d) / 7
+    if (gaining) return Math.min(goalW ?? Infinity, pct ? startW * (1 + pctMid) ** wk : startW + rateMid * wk)
     return Math.max(goalW ?? -Infinity, pct ? startW * (1 - pctMid) ** wk : startW - rateMid * wk)
   }
   const planW = planAt(today)
-  let vsPlan = planW != null && trendW != null ? trendW - planW : null
+  // above the plan's line is behind it on a cut, below it on a gain
+  let vsPlan = planW != null && trendW != null ? (trendW - planW) * dir : null
 
   // A break and the week after it, as the screens tell it: the trend against the day before the
   // break began (BREAK_RISE_KG is the target over it), and "behind plan" held at that day's value
@@ -664,7 +673,7 @@ export function cutReport(S, today = todayISO()) {
       const delta = cur.L - before.L
       breakResult = { from: around.from, to: around.to, pre, before: before.L, now: cur.L, delta, target: BREAK_RISE_KG * per, over: delta > BREAK_RISE_KG * per, back: !!water, until: water ? addDays(around.to, WATER_DAYS) : null }
       const planPre = planAt(pre)
-      if (planPre != null && started && pre >= cut.start) { vsPlan = before.L - planPre; planHeld = true }
+      if (planPre != null && started && pre >= cut.start) { vsPlan = (before.L - planPre) * dir; planHeld = true }
     }
   }
 
@@ -680,7 +689,7 @@ export function cutReport(S, today = todayISO()) {
     const two = summarize(S, addDays(today, -13), today, cut, today, maintenance)
     if (two.sleep.n >= 5 && two.sleep.avg < 7) strength.causes.push({ code: 'sleep', avg: round(two.sleep.avg, 1) })
     if (two.protein.n >= 5 && two.protein.avg < cut.protein * 0.9) strength.causes.push({ code: 'protein', avg: round(two.protein.avg), target: cut.protein })
-    if (lossWk != null && lossWk > rateMax + 0.1 * per) strength.causes.push({ code: 'pace', lossWk, ratePct })
+    if (!gaining && lossWk != null && lossWk > rateMax + 0.1 * per) strength.causes.push({ code: 'pace', lossWk, ratePct })
     if (two.kcal.n >= 5 && two.kcal.avg < cut.minKcal) strength.causes.push({ code: 'kcal', avg: round(two.kcal.avg), floor: cut.minKcal })
     if (two.alcoholDays >= 2) strength.causes.push({ code: 'alcohol', n: two.alcoholDays })
     if (two.energy.n >= 5 && two.energy.avg <= 2.2) strength.causes.push({ code: 'energy' })
@@ -700,8 +709,12 @@ export function cutReport(S, today = todayISO()) {
   const avg1 = weekAvg(addDays(today, -13), addDays(today, -7))
   const avg2 = weekAvg(addDays(today, -6), today)
   const weekDrops = avg0 != null && avg1 != null && avg2 != null ? [avg0 - avg1, avg1 - avg2] : null
+  const weekProg = weekDrops ? weekDrops.map(x => x * dir) : null
   const brkIn3 = cut.breaks.some(b => b.to >= addDays(today, -20) && b.from <= today)
-  const slow2 = !!weekDrops && weekDrops.every(x => x < rateMin - slack) && !brkIn3 && (!started || daysBetween(cut.start, today) >= 20)
+  const settled3 = !brkIn3 && (!started || daysBetween(cut.start, today) >= 20)
+  const slow2 = !!weekProg && weekProg.every(x => x < rateMin - slack) && settled3
+  // a gain two weeks over its range: more of it fat than needs to be
+  const fast2 = !!weekProg && weekProg.every(x => x > rateMax + slack) && settled3
   // After the cut: the zone against the end weight is the whole verdict (lib/maintain.js).
   const maintaining = cut.mode === 'maintain'
   const zone = maintaining && cut.endW ? maintainZone(trendW, cut.endW, per) : null
@@ -712,14 +725,18 @@ export function cutReport(S, today = todayISO()) {
   else if (brk) phase = 'break'
   else if (water) phase = 'water'
   else if (started && dayN <= 7) phase = 'early'
-  else if (lossWk < -slack) phase = 'gain'
-  else if (slow2 && lossWk < rateMax) phase = 'stall'
-  else if (lossWk < rateMin - slack) phase = 'slow'
-  else if (lossWk > rateMax + slack) phase = 'fast'
+  else if (prog < -slack) phase = gaining ? 'loss' : 'gain'
+  else if (slow2 && prog < rateMax) phase = 'stall'
+  else if (prog < rateMin - slack) phase = 'slow'
+  else if (prog > rateMax + slack) phase = 'fast'
   else phase = 'ok'
 
   let action = null
-  if (phase === 'stall' || (phase === 'gain' && slow2)) {
+  if (gaining) {
+    // a gain that stopped: 100 kcal more; one running two weeks too fast: 100 less
+    if (phase === 'stall' || (phase === 'loss' && slow2)) action = { kind: 'kcal', value: cut.kcal + 100 }
+    else if (phase === 'fast' && fast2) action = { kind: 'kcal', value: Math.max(cut.minKcal, cut.kcal - 100) }
+  } else if (phase === 'stall' || (phase === 'gain' && slow2)) {
     action = cut.kcal - 100 >= cut.minKcal ? { kind: 'kcal', value: cut.kcal - 100 } : { kind: 'steps', value: cut.steps + 2000 }
   } else if (phase === 'fast' && strength.ready && strength.status !== 'hold') {
     action = { kind: 'kcal', value: cut.kcal + 150 }
@@ -732,7 +749,7 @@ export function cutReport(S, today = todayISO()) {
 
   const advice = []
   if (maintaining && zone) advice.push({ code: 'zone-' + zone.zone, delta: zone.delta, green: zone.green, yellow: zone.yellow })
-  if (settling && (phase === 'stall' || phase === 'slow' || phase === 'fast' || phase === 'gain')) advice.push({ code: 'settling', since: cut.changedAt, until: addDays(cut.changedAt, 14) })
+  if (settling && (phase === 'stall' || phase === 'slow' || phase === 'fast' || phase === 'gain' || phase === 'loss')) advice.push({ code: 'settling', since: cut.changedAt, until: addDays(cut.changedAt, 14) })
   const upcoming = nextBreak(cut, today)
   if (brk) advice.push({ code: 'break', kcal: maintenance, to: brk.to })
   else if (water) advice.push({ code: 'water', until: addDays(water.to, WATER_DAYS), kcal: cut.kcal })
@@ -741,22 +758,22 @@ export function cutReport(S, today = todayISO()) {
   if (anyLog && week7.kcal.n < 5) advice.push({ code: 'log-kcal', n: week7.kcal.n })
   if (trend.length && week7.weighIns < 4) advice.push({ code: 'weigh-more', n: week7.weighIns })
   if (week7.protein.n >= 3 && week7.protein.avg < cut.protein * 0.9) advice.push({ code: 'protein-low', avg: round(week7.protein.avg), target: cut.protein })
-  if (week7.kcal.n >= 3 && week7.kcal.avg < cut.minKcal - 100 && !brk) advice.push({ code: 'kcal-too-low', avg: round(week7.kcal.avg), floor: cut.minKcal })
+  if (!gaining && week7.kcal.n >= 3 && week7.kcal.avg < cut.minKcal - 100 && !brk) advice.push({ code: 'kcal-too-low', avg: round(week7.kcal.avg), floor: cut.minKcal })
   if (week7.sleep.n >= 3 && week7.sleep.avg < 7) advice.push({ code: 'sleep-low', avg: round(week7.sleep.avg, 1) })
   if (week7.steps.n >= 3 && week7.steps.avg < cut.steps * 0.8) advice.push({ code: 'steps-low', avg: round(week7.steps.avg), target: cut.steps })
   if (week7.alcoholDays > 0) advice.push({ code: 'alcohol', n: week7.alcoholDays })
-  if (week7.energy.n >= 4 && week7.hunger.n >= 4 && week7.energy.avg <= 2.2 && week7.hunger.avg >= 3.8) advice.push({ code: 'fatigue' })
+  if (!gaining && week7.energy.n >= 4 && week7.hunger.n >= 4 && week7.energy.avg <= 2.2 && week7.hunger.avg >= 3.8) advice.push({ code: 'fatigue' })
   if (strength.ready && strength.status === 'drop') advice.push({ code: 'strength-drop', pct: round(strength.median * 100) })
   if (tdee.ready && !brk && !maintaining) {
     // the calories for the middle of the range — but never under the floor, so the pace that floor
     // gives is what is promised, not the one asked for
     const kcal = kcalForRate(S, tdee.tdee, rateMid, cut)
-    advice.push({ code: 'tdee', tdee: tdee.tdee, kcal, rate: Math.max(0, (tdee.tdee - kcal) * 7 / (KCAL_PER_KG / per)) })
+    advice.push({ code: 'tdee', tdee: tdee.tdee, kcal, rate: Math.max(0, (tdee.tdee - kcal) * dir * 7 / (KCAL_PER_KG / per)), ...(gaining ? { gain: true } : {}) })
   }
 
   return {
     cut, unit: S?.unit === 'lb' ? 'lb' : 'kg', per, today,
-    trend, cur, trendW, lossWk, ratePct, rateMin, rateMax, rateMid, band,
+    trend, cur, trendW, lossWk, prog, gaining, ratePct, rateMin, rateMax, rateMid, band,
     started, dayN, week, startW, goalW, lost, toGo, pctDone, eta, planEta, planAt, planW, vsPlan, planHeld, weekDrops,
     week7, prev7, tdee, maintenance, strength, phase, action, settling, advice, breakNow: brk, water, breakResult,
     maintaining, zone,

@@ -26,7 +26,8 @@ export function finishCut(S, { trendW, tdee, today, gradual = false }) {
   const c = cutOf(S)
   const to = Math.round((tdee || c.maintenance) / 10) * 10
   const kcal = gradual ? Math.round((c.kcal + (to - c.kcal) / 3) / 10) * 10 : to
-  return cutOf({ cut: { ...c, mode: 'maintain', endW: Math.round(trendW * 100) / 100, endedAt: today, cutKcal: c.kcal, kcal, maintenance: to, changedAt: today } })
+  // a gain's calories are no mini-cut's: only a cut's are kept for one
+  return cutOf({ cut: { ...c, mode: 'maintain', endW: Math.round(trendW * 100) / 100, endedAt: today, cutKcal: c.mode === 'cut' ? c.kcal : null, kcal, maintenance: to, changedAt: today } })
 }
 
 /**

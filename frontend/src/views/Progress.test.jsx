@@ -91,4 +91,38 @@ describe('Progress', () => {
     act(() => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Start a mini-cut').click() })
     expect(useStore.getState().S.cut).toMatchObject({ mode: 'cut', start: today, kcal: 1900 })
   })
+
+  it('a gain: the weeks counted as one, what came on, and the plan sheet worded for it', () => {
+    const today = todayISO(), start = addDays(today, -34)
+    const bodyweight = [], dailyLog = []
+    for (let i = 0; i < 35; i++) {
+      const d = addDays(start, i), at = new Date(d + 'T07:00:00').getTime()
+      bodyweight.push({ d, w: Math.round((65 + 0.25 * i / 7 + (i % 3 - 1) * 0.2) * 10) / 10, t: at })
+      dailyLog.push({ d, t: at, kcal: 2800, protein: 120, steps: 9000, sleep: 7.8, alcohol: false })
+    }
+    useStore.setState(s => ({ S: { ...s.S, unit: 'kg', targetW: 75, measurements: [], workouts: [], bodyweight, dailyLog,
+      profile: { sex: 'm', born: Number(today.slice(0, 4)) - 26, heightCm: 180, activity: 'moderate' },
+      cut: { start, mode: 'gain', rateMin: 0.2, rateMax: 0.3, kcal: 2800 } } }))
+    act(() => root.render(<Progress />))
+    const text = host.textContent
+    expect(text).toContain('Gain · week 5 · day 35')
+    expect(text).toContain('Gained so far')
+    expect(text).toContain('On track')
+    expect(text).not.toContain('Before the cut')
+    act(() => { host.querySelector('[aria-label="Your plan"]').click() })
+    const top = useUI.getState().sheets.at(-1)
+    act(() => root.render(top.render(() => {})))
+    const sheet = host.textContent
+    expect(sheet).toContain('Gain plan')
+    expect(sheet).toContain('Weekly gain aimed for')
+    expect(sheet).toContain('Gain at least')
+    expect(sheet).not.toContain('Diet breaks')
+    expect(sheet).toContain('Change my goal')
+    // back to what the profile and the goal work out to, over maintenance on a gain
+    const reset = [...host.querySelectorAll('button')].find(b => b.textContent === 'Reset targets to my numbers')
+    act(() => { reset.click() })
+    const kcal = [...host.querySelectorAll('.measure-field')].find(f => f.textContent.startsWith('Calories')).querySelector('input').value
+    // 26, 180 cm, ~66 kg, moderately active: maintenance 2,490 + 275 for a quarter of a kilo a week
+    expect(Number(kcal)).toBe(2770)
+  })
 })

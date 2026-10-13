@@ -105,6 +105,7 @@ export function weekBrief(S, ci, r) {
  *   'hold'   the water week after a break: nothing changes for its drop.
  * Before maintenance can be worked out (about three weeks), a pace well outside the range three
  * weeks in moves 100 kcal, the way the stall rule would. `rate` is the pace the new calories give.
+ * On a gain (`gain: true`) the same, the other way round: the calories over maintenance.
  */
 export function proposeKcal(S, today, r = cutReport(S, today)) {
   const cut = r.cut
@@ -115,6 +116,24 @@ export function proposeKcal(S, today, r = cutReport(S, today)) {
   if (r.breakNow) return { kind: 'break', kcal: r.maintenance, from }
   if (r.water) return { kind: 'hold', kcal: from, from }
   const perKg = KCAL_PER_KG / per
+  // a gain: the same steps the other way — towards maintenance plus the pace, and early on 100 more
+  // while it gains too slowly, 100 less while too fast (past the range, more of it is fat)
+  if (r.gaining) {
+    if (r.tdee.ready) {
+      const tdee = r.tdee.tdee
+      const want = kcalForRate(S, tdee, r.rateMid, cut)
+      const rateOf = k => Math.max(0, (k - tdee) * 7 / perKg)
+      const kcal = from + clamp(round10(want - from), -MAX_STEP, MAX_STEP)
+      if (Math.abs(want - from) < 50 || kcal === from) return { kind: 'keep', kcal: from, from, tdee, want, rate: rateOf(from), gain: true }
+      return { kind: 'kcal', kcal, from, tdee, want, rate: rateOf(kcal), gain: true }
+    }
+    const slack = 0.1 * per
+    if (r.started && r.dayN >= 21 && r.prog != null) {
+      if (r.prog < r.rateMin - slack) return { kind: 'kcal', kcal: from + 100, from, early: true, gain: true }
+      if (r.prog > r.rateMax + slack) return { kind: 'kcal', kcal: Math.max(cut.minKcal, from - 100), from, early: true, gain: true }
+    }
+    return { kind: 'keep', kcal: from, from, early: true, gain: true }
+  }
   if (r.tdee.ready) {
     const tdee = r.tdee.tdee
     const want = kcalForRate(S, tdee, r.rateMid, cut)            // never under the floor

@@ -67,10 +67,11 @@ export function precutItems(S, { today, mobile = false, ios = false, health = nu
 
 /**
  * Whether the card shows: before the cut and in its first two weeks, until every item is done or
- * it is put away.
+ * it is put away — on a cut only.
  */
 export function precutShown(S, items, today) {
   const cut = cutOf(S)
+  if (cut.mode !== 'cut') return false   // the checks are a cut's: not for maintenance or a gain
   if (Number(S?.precut?.hidden) > 0) return false
   if (cut.start && today > addDays(cut.start, 13)) return false
   return items.some(i => !i.done)
