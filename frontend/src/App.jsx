@@ -47,6 +47,7 @@ import Measurements from './views/Measurements.jsx'
 import Progress from './views/Progress.jsx'
 import Food from './views/Food.jsx'
 import Setup from './views/Setup.jsx'
+import WeeklyCheckIn from './views/WeeklyCheckIn.jsx'
 import CoachIntake from './views/CoachIntake.jsx'
 import CoachSetup from './views/CoachSetup.jsx'
 
@@ -225,6 +226,7 @@ function Shell() {
               <Route path="/progress" element={<Progress />} />
               <Route path="/food" element={<Food />} />
               <Route path="/setup" element={<Setup />} />
+              <Route path="/weekly" element={<WeeklyCheckIn />} />
               <Route path="/settings" element={<SettingsRoute />} />
               <Route path="/settings/:page" element={<SettingsRoute />} />
               {/* The Coach screens gate themselves on the instance config; the routes exist

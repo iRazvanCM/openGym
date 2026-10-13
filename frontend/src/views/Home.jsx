@@ -15,7 +15,7 @@ import { Button } from '../components/ui.jsx'
 import { tappable } from '../lib/use-sheet-keyboard.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { dayNoteOf } from '../lib/day-notes.js'
-import { DailyLogCard } from '../components/DailyLog.jsx'
+import { CheckInCard, DailyLogCard } from '../components/DailyLog.jsx'
 import SafetyCard from '../components/SafetyCard.jsx'
 import PrecutCard from '../components/PrecutCard.jsx'
 import { MOBILE } from '../lib/mobile.js'
@@ -169,6 +169,7 @@ export default function Home() {
 
     {/* The day's log — calories, protein, steps, cardio, sleep, alcohol — and where the cut
         stands, one tap from Progress (components/DailyLog.jsx). */}
+    <CheckInCard />
     <DailyLogCard />
 
     {/* The checks before the cut and its first two weeks (lib/precut.js), until all are done. */}

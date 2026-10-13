@@ -18,6 +18,7 @@ import {
 } from '../lib/cut.js'
 import { normalizeMeasurementsState, measurementEntryHasValues, emptyMeasurement, toMeasurementDisplay, fromMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
 import { dayNutrition } from '../lib/food.js'
+import { checkInFor, currentFocus } from '../lib/checkin.js'
 import { fmtNum, fmtDate, todayISO } from '../lib/format.js'
 import { t, dateLocale } from '../lib/i18n.js'
 import { tappable } from '../lib/use-sheet-keyboard.js'
@@ -277,6 +278,7 @@ export function DailyLogCard() {
   const info = phaseInfo(report.phase)
   const unit = report.unit
   const nut = dayNutrition(S, today)
+  const focus = currentFocus(S, today)
   const filled = logged ? (nut.kcal != null ? 1 : 0) + (nut.protein != null ? 1 : 0) + ['steps', 'sleep'].filter(k => logged[k] != null).length + (logged.alcohol != null ? 1 : 0) : 0
 
   return <div className="card dl-card">
@@ -291,6 +293,7 @@ export function DailyLogCard() {
       <Button size="sm" variant={logged ? 'plain' : 'tinted'} icon={logged ? 'pencil' : 'plus'} onClick={() => dailyLogSheet(today)}>{logged ? t('Edit') : t('Log')}</Button>
     </div>
     <DayChips S={S} iso={today} cut={cut} brkKcal={report.maintenance} />
+    {focus && <div className="dl-focus"><Icon name="target" /><span>{t('This week: {0}', focus.text)}</span></div>}
     {report.trend.length > 0 && <div className="dl-trend" {...tappable(() => nav('/progress'))}>
       <div className="dl-trend-m">
         <span className="muted small">{t('Trend')}</span>
@@ -304,5 +307,21 @@ export function DailyLogCard() {
       <span className="muted small" style={{ flex: 1 }}>{S.cut ? t('Open Progress to see your cut') : t('Set up your plan: targets, goal and reminders')}</span>
       <Icon name="chevronRight" className="chev" />
     </div>}
+  </div>
+}
+
+/** The weekly check-in, on Home while it is due (lib/checkin.js). */
+export function CheckInCard() {
+  const nav = useNavigate()
+  const S = useStore(s => s.S)
+  const ci = checkInFor(S, todayISO())
+  if (!ci?.due) return null
+  return <div className="card ci-card" {...tappable(() => nav('/weekly'))}>
+    <span className="lrow-i" style={{ '--tint': 'var(--purple)' }}><Icon name="calendar" /></span>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="dl-lbl">{t('Weekly check-in')}</div>
+      <div className="ci-card-t">{t('Two minutes: the week, the half-logged days, next week\'s calories')}</div>
+    </div>
+    <Button size="sm" variant="tinted" onClick={e => { e.stopPropagation(); nav('/weekly') }}>{t('Start')}</Button>
   </div>
 }

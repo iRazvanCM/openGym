@@ -11,11 +11,12 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
-  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, dietDays, isIso, logFor,
+  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, logFor,
   weeklyRows,
 } from '../lib/cut.js'
 import { latestMeasurement, toMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
-import { fmtDate, fmtNum, todayISO, weekStartOf, exerciseNameText } from '../lib/format.js'
+import { fmtDate, fmtNum, todayISO, weekStartOf, exerciseNameText, DAYS } from '../lib/format.js'
+import { checkInDayOf, checkInDayName, checkInFor } from '../lib/checkin.js'
 import { exOr } from '../lib/exercises.js'
 import { MOBILE, shareExport } from '../lib/mobile.js'
 import { t } from '../lib/i18n.js'
@@ -46,6 +47,7 @@ function CutSettings({ close }) {
     kcal: cut.kcal, protein: cut.protein, fat: cut.fat, steps: cut.steps, cardio: cut.cardio, sleep: cut.sleep, gymDays: cut.gymDays,
     minKcal: cut.minKcal, maintenance: cut.maintenance,
     rateMin: r1(cut.rateMin * per), rateMax: r1(cut.rateMax * per),
+    rateMode: cut.rateMode, ratePctMin: cut.ratePctMin, ratePctMax: cut.ratePctMax, checkInDay: checkInDayOf(cut),
     breaks: cut.breaks, bFrom: '', bTo: '',
   }))
   const set = (k, val) => setV(x => ({ ...x, [k]: val }))
@@ -60,16 +62,19 @@ function CutSettings({ close }) {
   }
 
   const save = () => {
-    if (v.rateMin == null || v.rateMax == null || v.rateMin >= v.rateMax) { toast(t('The lowest weekly loss must be below the highest')); return }
+    if (v.rateMode === 'kg' && (v.rateMin == null || v.rateMax == null || v.rateMin >= v.rateMax)) { toast(t('The lowest weekly loss must be below the highest')); return }
+    if (v.rateMode === 'pct' && (v.ratePctMin == null || v.ratePctMax == null || v.ratePctMin >= v.ratePctMax)) { toast(t('The lowest weekly loss must be below the highest')); return }
     if (v.start && !isIso(v.start)) { toast(t('Choose a valid date')); return }
     const changed = v.kcal !== cut.kcal || v.steps !== cut.steps
     update(s => {
       s.cut = {
+        ...cutOf(s),
         changedAt: changed ? today : cut.changedAt,
         start: v.start || null,
         kcal: v.kcal, protein: v.protein, fat: v.fat, steps: v.steps, cardio: v.cardio, sleep: v.sleep, gymDays: v.gymDays,
         minKcal: v.minKcal, maintenance: v.maintenance, remind: cut.remind,
-        rateMin: Math.round(v.rateMin / per * 100) / 100, rateMax: Math.round(v.rateMax / per * 100) / 100,
+        rateMin: v.rateMin != null ? Math.round(v.rateMin / per * 100) / 100 : cut.rateMin, rateMax: v.rateMax != null ? Math.round(v.rateMax / per * 100) / 100 : cut.rateMax,
+        rateMode: v.rateMode, ratePctMin: v.ratePctMin, ratePctMax: v.ratePctMax, checkInDay: v.checkInDay,
         breaks: v.breaks,
       }
       // cutOf puts the defaults back for anything left empty or out of range
@@ -109,9 +114,28 @@ function CutSettings({ close }) {
       {num('sleep', t('Sleep'), t('h'), { decimal: true })}
       {num('gymDays', t('Gym days a week'), '')}
       {num('minKcal', t('Never below'), 'kcal')}
-      {num('rateMin', t('Lose at least'), unit + t('/wk'), { decimal: true })}
-      {num('rateMax', t('Lose at most'), unit + t('/wk'), { decimal: true })}
       {num('maintenance', t('Maintenance guess'), 'kcal')}
+    </div>
+
+    <label className="sect-t">{t('Weekly loss aimed for')}</label>
+    <Segmented className="seg-range" value={v.rateMode} onChange={m => set('rateMode', m)}
+      options={[{ value: 'kg', label: unit + t('/wk') }, { value: 'pct', label: t('% of body weight') }]} />
+    <div className="measure-form" style={{ marginTop: 8 }}>
+      {v.rateMode === 'kg' ? <>
+        {num('rateMin', t('Lose at least'), unit + t('/wk'), { decimal: true })}
+        {num('rateMax', t('Lose at most'), unit + t('/wk'), { decimal: true })}
+      </> : <>
+        {num('ratePctMin', t('Lose at least'), t('%/wk'), { decimal: true })}
+        {num('ratePctMax', t('Lose at most'), t('%/wk'), { decimal: true })}
+      </>}
+    </div>
+    <div className="muted small" style={{ margin: '8px 2px 16px', lineHeight: 1.45 }}>{v.rateMode === 'kg'
+      ? t('A share of body weight slows down in kilos as you get lighter: 0.5–1% a week is the range linked to keeping muscle.')
+      : t('In kilos this is less as the weight comes down: 0.7–1% is about 0.74–1.06 kg a week at 106 kg, 0.6–0.85 at 85.')}</div>
+
+    <label className="sect-t">{t('Weekly check-in day')}</label>
+    <div className="ci-focus" role="radiogroup" aria-label={t('Weekly check-in day')} style={{ marginBottom: 16 }}>
+      {[1, 2, 3, 4, 5, 6, 0].map(d => <button key={d} role="radio" aria-checked={v.checkInDay === d} className={'chip nocap' + (v.checkInDay === d ? ' on' : '')} onClick={() => set('checkInDay', d)}>{t(DAYS[d])}</button>)}
     </div>
     <div className="muted small" style={{ margin: '8px 2px 16px' }}>{t('The maintenance guess is used until Progress works yours out from your log — about three weeks in.')}</div>
 
@@ -137,7 +161,7 @@ function CutSettings({ close }) {
     <div style={{ height: 16 }} />
     <Button variant="primary" onClick={save}>{t('Save')}</Button>
     <div style={{ height: 6 }} />
-    <Button variant="ghost" className="dim" onClick={() => setV(x => ({ ...x, ...CUT_DEFAULTS, start: x.start, goal: x.goal, breaks: x.breaks, rateMin: r1(CUT_DEFAULTS.rateMin * per), rateMax: r1(CUT_DEFAULTS.rateMax * per) }))}>{t('Reset targets to the plan')}</Button>
+    <Button variant="ghost" className="dim" onClick={() => setV(x => ({ ...x, ...CUT_DEFAULTS, start: x.start, goal: x.goal, breaks: x.breaks, checkInDay: x.checkInDay, rateMin: r1(CUT_DEFAULTS.rateMin * per), rateMax: r1(CUT_DEFAULTS.rateMax * per) }))}>{t('Reset targets to the plan')}</Button>
   </>
 }
 
@@ -243,7 +267,10 @@ function Verdict({ r, S }) {
         </div>}
         {r.phase === 'break'
           ? <div className="small dim">{t('Aim over the break: the trend at most +{0}', fmt1(r.breakResult?.target ?? 0.5 * r.per) + ' ' + unit)}</div>
-          : <div className="small dim">{t('Aim: {0}–{1} a week', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + unit)}</div>}
+          : <div className="small dim">{r.band.mode === 'pct'
+            ? t('Aim: {0}–{1}% of body weight a week ({2})', fmt1(r.band.pctMin), fmt1(r.band.pctMax), fmt1(r.rateMin) + '–' + fmt1(r.rateMax) + ' ' + unit)
+            : r.band.pctMin != null ? t('Aim: {0}–{1} a week ({2}% of body weight)', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + unit, fmt1(r.band.pctMin) + '–' + fmt1(r.band.pctMax))
+              : t('Aim: {0}–{1} a week', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + unit)}</div>}
       </div>
     </div>
     {why && <p className="cut-vp">{why}</p>}
@@ -255,6 +282,28 @@ function Verdict({ r, S }) {
       {r.advice.map((a, i) => { const text = adviceText(a); return text && <li key={i} className={a.code === 'tdee' || a.code.startsWith('break') ? 'info' : ''}><Icon name={a.code === 'tdee' ? 'calculator' : a.code.startsWith('break') ? 'sun' : 'info'} /><span>{text}</span></li> })}
     </ul>}
     {S.targetW == null && <Button size="sm" variant="plain" icon="target" onClick={goalSheet}>{t('Set a goal weight')}</Button>}
+  </div>
+}
+
+/* The weekly check-ins (views/WeeklyCheckIn.jsx): the last few, and the way in any day. */
+function CheckIns({ S, r, today }) {
+  const nav = useNavigate()
+  const list = (S.checkIns || []).slice(-5).reverse()
+  const ci = checkInFor(S, today)
+  const unit = r.unit
+  return <div className="card">
+    <div className="row between" style={{ marginBottom: list.length ? 6 : 0, gap: 8 }}>
+      <div style={{ minWidth: 0 }}>
+        <h2 style={{ margin: 0 }}>{t('Check-ins')}</h2>
+        <div className="small muted">{ci?.due ? t('Due today') : t('Every {0}', t(checkInDayName(r.cut)))}</div>
+      </div>
+      <Button size="sm" variant={ci?.due ? 'tinted' : 'plain'} icon="calendar" onClick={() => nav('/weekly')}>{ci?.due ? t('Start') : t('Check in now')}</Button>
+    </div>
+    {list.map(c => <div className="ci-hist" key={c.d}>
+      <b>{fmtDate(c.d, true)}</b>
+      <span>{c.focus?.text || (c.week?.lossWk != null ? fmtRate(c.week.lossWk, unit) : '')}</span>
+      <i>{c.kcalTo != null && c.kcalFrom != null && c.kcalTo !== c.kcalFrom ? `${fmtInt(c.kcalFrom)} → ${fmtInt(c.kcalTo)}` : c.stepsTo ? t('{0} steps', fmtInt(c.stepsTo)) : t('kept {0}', fmtInt(c.kcalTo ?? c.kcalFrom))}</i>
+    </div>)}
   </div>
 }
 
@@ -295,10 +344,11 @@ export default function Progress() {
     if (r.started && r.startW != null && r.goalW != null && r.startW > r.goalW) {
       const a = cut.start >= from ? cut.start : from
       const b = today
-      // flat through each break: the plan stands still there (lib/cut.js dietDays)
-      const planAt = d => Math.max(r.goalW, r.startW - r.rateMid * dietDays(cut, cut.start, d) / 7)
+      // flat through each break: the plan stands still there (lib/cut.js dietDays); a pace set as a
+      // share of body weight curves, so it gets a point a week
       const turns = cut.breaks.flatMap(x => [addDays(x.from, 1), addDays(x.to, 1)]).filter(d => d > a && d < b)
-      const pts = [...new Set([a, ...turns, b])].sort().map(d => ({ t: ms(d), y: planAt(d), d }))
+      const weekly = cut.rateMode === 'pct' ? Array.from({ length: Math.floor(daysBetween(a, b) / 7) }, (_, i) => addDays(a, 7 * (i + 1))).filter(d => d < b) : []
+      const pts = [...new Set([a, ...turns, ...weekly, b])].sort().map(d => ({ t: ms(d), y: r.planAt(d), d }))
       if (a < b) series.push({ points: pts, color: 'var(--yellow)', width: 1.4, dash: '5 5', dots: false })
     }
     return { line, series }
@@ -387,6 +437,8 @@ export default function Progress() {
     </div>}
 
     <Verdict r={r} S={S} />
+
+    {cut.start && cut.start <= today && <CheckIns S={S} r={r} today={today} />}
 
     <div className="row between" style={{ margin: '18px 2px 10px' }}>
       <h4 className="sec" style={{ margin: 0 }}>{t('Last 7 days')}</h4>

@@ -58,6 +58,14 @@ export const CUT_DEFAULTS = Object.freeze({
   breaks: [],           // [{ from, to }] maintenance phases: a diet break, the holidays
   changedAt: null,      // iso date calories or steps were last changed, for the two weeks a change needs
   remind: null,         // { weigh: 'HH:MM' | null, log: 'HH:MM' | null } — the phone's two daily reminders
+  rateMode: 'kg',       // the pace aimed for as kilos a week ('kg': rateMin–rateMax) or a share of body weight ('pct')
+  ratePctMin: 0.7,      // % of body weight a week, when rateMode is 'pct'
+  ratePctMax: 1.0,
+  checkInDay: null,     // the weekly check-in's weekday (0 Sunday … 6 Saturday); null = the start's weekday
+  mode: 'cut',          // 'cut', or 'maintain' once the goal is reached (lib/maintain.js)
+  endW: null,           // the trend weight the maintenance phase holds to, set when it began
+  endedAt: null,        // iso date the cut ended and maintenance began
+  keyLifts: [],         // up to six exercise ids the strength check follows; empty = the most-trained ones
 })
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -74,18 +82,26 @@ export const unitPerKg = S => (S?.unit === 'lb' ? LB_PER_KG : 1)
 /** S.cut with every missing or out-of-range value replaced by its default. */
 export function cutOf(S) {
   const raw = S?.cut && typeof S.cut === 'object' ? S.cut : {}
-  const c = { ...CUT_DEFAULTS, breaks: [] }
+  const c = { ...CUT_DEFAULTS, breaks: [], keyLifts: [] }
   if (isIso(raw.start)) c.start = raw.start
   if (isIso(raw.changedAt)) c.changedAt = raw.changedAt
+  if (isIso(raw.endedAt)) c.endedAt = raw.endedAt
+  if (raw.rateMode === 'pct') c.rateMode = 'pct'
+  if (raw.mode === 'maintain') c.mode = 'maintain'
+  if (Number.isInteger(raw.checkInDay) && raw.checkInDay >= 0 && raw.checkInDay <= 6) c.checkInDay = raw.checkInDay
+  if (Number(raw.endW) > 0 && Number(raw.endW) < 1000) c.endW = round(Number(raw.endW), 2)
+  c.keyLifts = (Array.isArray(raw.keyLifts) ? raw.keyLifts : []).filter(id => typeof id === 'string' && id && id.length <= 64).slice(0, 6)
   const RANGES = {
     kcal: [800, 8000], protein: [20, 500], fat: [10, 400], steps: [500, 60000], cardio: [0, 300], sleep: [3, 14],
     gymDays: [0, 7], minKcal: [800, 6000], maintenance: [1000, 9000], rateMin: [0.05, 2.5], rateMax: [0.1, 3],
+    ratePctMin: [0.1, 2], ratePctMax: [0.2, 2.5],
   }
   for (const [k, [lo, hi]] of Object.entries(RANGES)) {
     const n = Number(raw[k])
     if (raw[k] != null && raw[k] !== '' && Number.isFinite(n) && n >= lo && n <= hi) c[k] = round(n, k.startsWith('rate') || k === 'sleep' ? 2 : 0)
   }
   if (c.rateMin >= c.rateMax) { c.rateMin = CUT_DEFAULTS.rateMin; c.rateMax = CUT_DEFAULTS.rateMax }
+  if (c.ratePctMin >= c.ratePctMax) { c.ratePctMin = CUT_DEFAULTS.ratePctMin; c.ratePctMax = CUT_DEFAULTS.ratePctMax }
   c.carbs = carbsFor(c.kcal, c.protein, c.fat)
   const time = v => (typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : null)
   const remind = { weigh: time(raw.remind?.weigh), log: time(raw.remind?.log) }
@@ -103,6 +119,22 @@ export function cutOf(S) {
  * with 175 g protein and 60 g fat leaves 190 g.
  */
 export const carbsFor = (kcal, protein, fat) => Math.max(0, Math.round((kcal - 4 * protein - 9 * fat) / 4))
+
+/**
+ * The pace aimed for, in the profile's unit a week: { min, max, mid, pctMin, pctMax } — kilos (or
+ * pounds) as set, or a share of the body weight given (`weight`, the trend), which slows the pace
+ * in kilos as the weight comes down (0.7–1% is 0.74–1.06 kg a week at 106 kg, 0.6–0.85 at 85).
+ * Each comes with the other's view: the kilos as a share of `weight`, the share in kilos.
+ */
+export function rateBand(cut, weight, per = 1) {
+  const w = Number(weight) > 0 ? Number(weight) : null
+  if (cut.rateMode === 'pct' && w) {
+    const min = w * cut.ratePctMin / 100, max = w * cut.ratePctMax / 100
+    return { min, max, mid: (min + max) / 2, pctMin: cut.ratePctMin, pctMax: cut.ratePctMax, mode: 'pct' }
+  }
+  const min = cut.rateMin * per, max = cut.rateMax * per
+  return { min, max, mid: (min + max) / 2, pctMin: w ? min / w * 100 : null, pctMax: w ? max / w * 100 : null, mode: 'kg' }
+}
 
 export const activeBreak = (cut, iso) => cut.breaks.find(b => b.from <= iso && iso <= b.to) || null
 export const nextBreak = (cut, iso) => cut.breaks.find(b => b.from > iso) || null
@@ -524,13 +556,22 @@ export function cutReport(S, today = todayISO()) {
   const toGo = goalW != null && trendW != null ? trendW - goalW : null
   const pctDone = startW != null && goalW != null && trendW != null && startW > goalW ? clamp((startW - trendW) / (startW - goalW), 0, 1) : null
 
-  const rateMin = cut.rateMin * per, rateMax = cut.rateMax * per, rateMid = (rateMin + rateMax) / 2
+  const band = rateBand(cut, trendW ?? startW, per)
+  const rateMin = band.min, rateMax = band.max, rateMid = band.mid
   const slack = 0.1 * per
   // The dates ahead skip the break days still to come; the plan's line stands still through a break.
   const weeksLeft = toGo != null && toGo > 0 && lossWk > 0.05 * per ? toGo / lossWk : null
   const eta = weeksLeft != null && cur ? addDietDays(cut, cur.d, weeksLeft * 7) : null
-  const planEta = toGo != null && toGo > 0 ? addDietDays(cut, today, toGo / rateMid * 7) : null
-  const planAt = d => (started && startW != null ? Math.max(goalW ?? -Infinity, startW - rateMid * dietDays(cut, cut.start, d) / 7) : null)
+  // A pace in kilos is a straight line; a share of the body weight a curve that flattens as it goes.
+  const pctMid = (cut.ratePctMin + cut.ratePctMax) / 200
+  const pct = cut.rateMode === 'pct'
+  const weeksTo = toGo != null && toGo > 0 ? (pct ? Math.log(goalW / trendW) / Math.log(1 - pctMid) : toGo / rateMid) : null
+  const planEta = weeksTo != null ? addDietDays(cut, today, weeksTo * 7) : null
+  const planAt = d => {
+    if (!started || startW == null) return null
+    const wk = dietDays(cut, cut.start, d) / 7
+    return Math.max(goalW ?? -Infinity, pct ? startW * (1 - pctMid) ** wk : startW - rateMid * wk)
+  }
   const planW = planAt(today)
   let vsPlan = planW != null && trendW != null ? trendW - planW : null
 
@@ -623,8 +664,8 @@ export function cutReport(S, today = todayISO()) {
 
   return {
     cut, unit: S?.unit === 'lb' ? 'lb' : 'kg', per, today,
-    trend, cur, trendW, lossWk, ratePct, rateMin, rateMax, rateMid,
-    started, dayN, week, startW, goalW, lost, toGo, pctDone, eta, planEta, planW, vsPlan, planHeld, weekDrops,
+    trend, cur, trendW, lossWk, ratePct, rateMin, rateMax, rateMid, band,
+    started, dayN, week, startW, goalW, lost, toGo, pctDone, eta, planEta, planAt, planW, vsPlan, planHeld, weekDrops,
     week7, prev7, tdee, maintenance, strength, phase, action, settling, advice, breakNow: brk, water, breakResult,
     streaks: streaks(S, today),
   }
