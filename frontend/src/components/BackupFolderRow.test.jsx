@@ -60,7 +60,7 @@ describe('BackupFolderRow', () => {
     await mount()
     expect(host.querySelector('.backup-lost')).toBeNull()
     await act(async () => { m.listeners.forEach(fn => fn({ lost: true, lostLabel: 'Sync' })) })
-    expect(host.querySelector('.backup-lost').textContent).toContain('openGym can no longer write to “Sync”')
+    expect(host.querySelector('.backup-lost').textContent).toContain('LiftLog can no longer write to “Sync”')
     expect(rowWith('Backup folder').textContent).toContain('Documents/openGym')
     await tap(rowWith('Use default folder'))
     expect(host.querySelector('.backup-lost')).toBeNull()
@@ -72,10 +72,18 @@ describe('the Auto-backup subtitle', () => {
   it('names the chosen folder, or the default', async () => {
     const { autoBackupSubtitle } = await import('./BackupFolderRow.jsx')
     expect(autoBackupSubtitle({ uri: 'content://tree/Sync', label: 'SyncFolder' }, 14))
-      .toBe('Saves a dated copy to “SyncFolder” after finishing a workout or editing a routine, and keeps the newest 14.')
+      .toBe('Saves a dated copy to “SyncFolder” after a workout, a routine edit or a change to the day’s log, and keeps the newest 14.')
     expect(autoBackupSubtitle({ uri: 'content://tree/x' }, 14))
-      .toBe('Saves a dated copy to the folder you chose after finishing a workout or editing a routine, and keeps the newest 14.')
+      .toBe('Saves a dated copy to the folder you chose after a workout, a routine edit or a change to the day’s log, and keeps the newest 14.')
     for (const f of [{}, null, { lost: true, lostLabel: 'SyncFolder' }]) expect(autoBackupSubtitle(f, 14)).toContain('Documents/openGym')
+    // the iPhone names the folder the way the Files app shows it, and says where to keep the copies safe
+    expect(autoBackupSubtitle({}, 14, true)).toContain('On My iPhone › LiftLog › openGym')
+    expect(autoBackupSubtitle({}, 14, true)).toContain('iCloud Drive')
+  })
+
+  it('on the iPhone the default folder is the app\'s own in Files', async () => {
+    await act(async () => { root.render(<BackupFolderRow ios />) })
+    expect(rowWith('Backup folder').textContent).toContain('On My iPhone › LiftLog › openGym')
   })
 
   it('the lost-folder warning is a warning row, not a big title', async () => {

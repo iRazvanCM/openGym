@@ -23,7 +23,7 @@ import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, tn, LANGS, INSTR_LANGS, EXERCISE_NAME_LANGS, baseLang, dateLocale } from '../lib/i18n.js'
 import { effectiveLang } from '../lib/default-lang.js'
 import { DEMO, REPO } from '../lib/demo.js'
-import { MOBILE, isAndroid, shareExport, shareExportBlob, syncReminder } from '../lib/mobile.js'
+import { MOBILE, isAndroid, syncReminder } from '../lib/mobile.js'
 import { NUDGE_COPY, NUDGE_TONES, toneOf } from '../lib/nudge.js'
 import { referencedFiles } from '../lib/media-refs.js'
 import { mediaStore } from '../lib/media-store.js'
@@ -41,6 +41,8 @@ import Icon from '../components/Icon.jsx'
 import { durationSheet } from '../components/DurationWheel.jsx'
 import { showsConnection, showsLocalLine } from '../components/SyncBanner.jsx'
 import BackupFolderRow, { useBackupFolder, autoBackupSubtitle } from '../components/BackupFolderRow.jsx'
+import { exportBackupJSON, exportBackupZip } from '../lib/backup-export.js'
+import { SafetyRows } from '../components/SafetyCard.jsx'
 import { ServerSyncSection, KeptChangesRows, leaveServer, connectServer, passkeySignIn } from '../components/ServerSync.jsx'
 import { passwordOn, PasswordRow, openPasswordSignIn, openPasswordRegister } from '../components/PasswordAuth.jsx'
 import { usePasskeys, PasskeysRow, DeviceLinkRow, openDeviceLinkRedeem } from '../components/Passkeys.jsx'
@@ -155,7 +157,7 @@ export default function Settings({ page = null, find = null, via = null }) {
   const [android, setAndroid] = useState(false)
   const [checking, setChecking] = useState(false)
   // Where auto-backup writes on this Android phone, for the Auto-backup row's own subtitle.
-  const [backupDir] = useBackupFolder(MOBILE && android && !!S.autoBackup)
+  const [backupDir] = useBackupFolder(MOBILE && !!S.autoBackup)
 
   useEffect(() => {
     // The in-app updater installs an .apk, so it only applies to the native Android build.
@@ -254,38 +256,15 @@ export default function Settings({ page = null, find = null, via = null }) {
   }
 
   // Reads the store at the moment of the tap: the sheet that asks before a sign-out offers it too,
-  // and the copy it exports is the one that has not reached the server.
-  const doExport = async () => {
-    const json = JSON.stringify(useStore.getState().S, null, 2)
-    const name = 'opengym-backup-' + todayISO() + '.json'
-    // WKWebView can't download blob URLs — the native build hands the file to the share sheet.
-    if (MOBILE) {
-      try { await shareExport(json, name); toast(t('Backup exported')) } catch (e) { /* share sheet dismissed */ }
-      return
-    }
-    const blob = new Blob([json], { type: 'application/json' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href)
-    toast(t('Backup exported'))
-  }
+  // and the copy it exports is the one that has not reached the server. Either export is
+  // remembered (lib/backup-export.js), for Home's "last export" and the weekly reminder.
+  const doExport = () => exportBackupJSON()
   // "Export with photos & videos": the same JSON plus every file the state refers to, in a zip
   // (lib/backup-media.js). Signed in, a file this device never downloaded is fetched for it; one
   // nobody has is left out and counted. The sign-out sheet offers it while media are waiting.
-  const doExportZip = async () => {
-    const { exportBackupZip } = await import('../lib/backup-media.js')
+  const doExportZip = () => {
     const st = useStore.getState()
-    const signedIn = !!(st.user && st.config?.media)
-    let out
-    try { out = await exportBackupZip(st.S, { fetchOne: signedIn ? fetchToStore : null }) }
-    catch { toast(t('Something went wrong')); return }
-    const name = 'opengym-backup-' + todayISO() + '.zip'
-    if (out.missing) toast(tn('{0} file could not be included', '{0} files could not be included', out.missing))
-    if (MOBILE) {
-      try { await shareExportBlob(out.blob, name); if (!out.missing) toast(t('Backup exported')) } catch (e) { /* share sheet dismissed */ }
-      return
-    }
-    const a = document.createElement('a'); a.href = URL.createObjectURL(out.blob); a.download = name; a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 60000)
-    if (!out.missing) toast(t('Backup exported'))
+    return exportBackupZip({ fetchOne: st.user && st.config?.media ? fetchToStore : null })
   }
   // Import takes the JSON backup and the zip alike, told apart by their first bytes. A zip's
   // files go into the local store only once the import is confirmed, each checked against its
@@ -777,14 +756,16 @@ export default function Settings({ page = null, find = null, via = null }) {
       <Section title={t('Back up')}>
         <Row icon="share" iconTint="var(--blue)" title={t('Export backup (JSON)')} subtitle={hasMedia ? t('Without photos and videos') : undefined} accessory="chevron" onClick={doExport} />
         {hasMedia && <Row icon="share" iconTint="var(--blue)" title={t('Export with photos & videos (.zip)')} accessory="chevron" onClick={doExportZip} />}
+        <SafetyRows />
         {/* 14 is AUTO_BACKUP_KEEP in lib/mobile.js, written out because the Settings tests mock
             that module wholesale; mobile.autobackup.test.js pins the two together. */}
         {MOBILE && <Row icon="folder" iconTint="var(--blue)" title={t('Auto-backup on changes')}
-          subtitle={autoBackupSubtitle(android && S.autoBackup ? backupDir : null, 14)}>
+          subtitle={autoBackupSubtitle(S.autoBackup ? backupDir : null, 14, !android)}>
           <Switch checked={!!S.autoBackup} onChange={v => update(s => { s.autoBackup = v })} />
         </Row>}
-        {/* Android only: the system folder picker (#161). iOS shows Documents in Files already. */}
-        {MOBILE && android && S.autoBackup && <BackupFolderRow />}
+        {/* The system folder picker (#161): a sync app's folder on Android, iCloud Drive on the
+            iPhone — the one place a copy survives the app being deleted. */}
+        {MOBILE && S.autoBackup && <BackupFolderRow ios={!android} />}
       </Section>
       {MOBILE && android && <HealthConnectCard S={S} toast={toast} />}
       {MOBILE && !android && <AppleHealthCard toast={toast} />}

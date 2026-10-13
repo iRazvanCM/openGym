@@ -10,6 +10,7 @@ import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJson
 import { initHealthSync, syncHealth } from '../lib/health-sync.js'
 import { initAppleHealth } from '../lib/apple-health.js'
 import { moveToAppleLook } from '../lib/look.js'
+import { backupDelay, dailySig, turnOnAutoBackup } from '../lib/backup-status.js'
 import { refillIfComplete } from '../lib/rotation.js'
 import { liftLegacy } from '../lib/sync-legacy.js'
 import { mergeStates, localExtras, stampChange, highestStamp, stampRestore, stampReplace, inUnitOf, keepReset, resetIdsOf, mergeResetIds, entryKey } from '../lib/sync-merge.js'
@@ -279,7 +280,8 @@ export function freshState() {
   // Exercise animations: Small (v1.3.11), a thumbnail beside the exercise name that a tap opens,
   // so the first set is on screen without scrolling. DEF stays 'full' for a profile saved before.
   s.gifSize = 'mini'
-  return s
+  // the phone app keeps its dated copies from the first day (lib/backup-status.js)
+  return turnOnAutoBackup(s, MOBILE)
 }
 
 // A copy that starts over on this device: Reset everything, or another account signing in here.
@@ -301,7 +303,7 @@ function loadState() {
       // account's copy keeps what it has, so a sync never sees a change nobody made
       let synced = false
       try { synced = !!localStorage.getItem('gym_owner') } catch { /* no storage: this device's own */ }
-      if (!synced) moveToAppleLook(s)
+      if (!synced) { moveToAppleLook(s); turnOnAutoBackup(s, MOBILE) }
       if (!saved.lang) s.lang = detectedLang()
       return s
     }
@@ -344,6 +346,11 @@ export const useStore = create((set, get) => {
   let pollTm = null
   let offlineChanges = false   // a push failed for lack of network — the next one that lands says so
   let backupTm = null      // phone: the auto-backup after workout media changed, on its debounce
+  // phone: the auto-backup after the daily log, the food diary or the plan changed — at most one
+  // copy every few minutes (lib/backup-status.js), and the one still waiting goes out at once when
+  // the app leaves the screen, since iOS may not wake it again before it is closed
+  let dailyTm = null
+  let lastBackupAt = 0
   let adoptHold = false    // a sign-in's adoption has not decided yet: no pull, no push (ADOPT_KEY)
   let adopting = null      // the adoptProfile in flight
   let rejoined = false     // the account signing in is the one this copy already belongs to (setUser)
@@ -493,6 +500,11 @@ export const useStore = create((set, get) => {
   }
 
   initReminderSync(() => get().S)
+  if (MOBILE && typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && dailyTm) get().autoBackupNow()
+    })
+  }
   initHealthSync(() => get().S)
   // iPhone app: steps, sleep, weight and workouts from Apple Health into the daily log
   initAppleHealth(() => get().S, fn => get().update(fn))
@@ -1359,6 +1371,11 @@ export const useStore = create((set, get) => {
         clearTimeout(backupTm)
         backupTm = setTimeout(() => { backupTm = null; get().autoBackupNow() }, AUTO_BACKUP_SOON_MS)
       }
+      // The day's numbers are as much worth a copy as a workout: a week of food logged by hand is
+      // the part no other app or device holds.
+      if (MOBILE && S.autoBackup && !dailyTm && dailySig(prev) !== dailySig(S)) {
+        dailyTm = setTimeout(() => { dailyTm = null; get().autoBackupNow() }, backupDelay(lastBackupAt, Date.now(), AUTO_BACKUP_SOON_MS))
+      }
     },
     // An edit of a saved workout (lib/session-edit.js) is saved or dropped like any other change:
     // the store's own sync takes it to the server, and a conflict on the way is settled by
@@ -1493,7 +1510,9 @@ export const useStore = create((set, get) => {
     // setting off; the private file mirror (nativePersist, above) already covers every change.
     autoBackupNow() {
       const S = get().S
-      if (MOBILE && S.autoBackup) writeAutoBackup(S)
+      // this copy holds whatever a waiting one would have
+      if (dailyTm) { clearTimeout(dailyTm); dailyTm = null }
+      if (MOBILE && S.autoBackup) { lastBackupAt = Date.now(); writeAutoBackup(S) }
     },
 
     isGuest: () => localStorage.getItem('gym_guest') === '1',
@@ -1911,7 +1930,7 @@ export const useStore = create((set, get) => {
         const saved = await nativeLoad()
         const S = get().S
         if (saved && (!hasData(S) || (saved._ts || 0) >= (S._ts || 0))) {
-          persist(moveToAppleLook(sanitizeAccent(Object.assign(clone(DEF), saved))), false, false)
+          persist(turnOnAutoBackup(moveToAppleLook(sanitizeAccent(Object.assign(clone(DEF), saved))), MOBILE), false, false)
         } else if (hasData(S)) {
           nativePersist(true)   // first run after an update from a file-less version: seed the mirror
         }

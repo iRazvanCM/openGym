@@ -2336,6 +2336,25 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .setup-foot{margin:16px 0 8px}
 
 
+/* ------------------------------------------------------- data safety (backups, renewal) -- */
+.safety-card{padding:6px 14px}
+.safety-row{display:flex;align-items:center;gap:12px;padding:10px 0;cursor:pointer}
+.safety-row+.safety-row{border-top:var(--hair) solid var(--sep)}
+.safety-row:active{opacity:.7}
+.safety-m{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.safety-m b{font-size:15px;font-weight:600;line-height:1.3}
+.safety-m span{font-size:13px;color:var(--label-2);line-height:1.35}
+.safety-row .btn{flex:none}
+.safety-when{display:flex;align-items:center;gap:8px;margin:6px 0 14px;padding:10px 12px;border-radius:var(--r);font-size:14px;font-weight:500;
+  color:var(--tone,var(--label));background:color-mix(in srgb,var(--tone,var(--label-3)) 13%,transparent)}
+.safety-when.ok{--tone:var(--green)}
+.safety-when.soon{--tone:var(--orange)}
+.safety-when:is(.urgent,.expired){--tone:var(--red)}
+.safety-rules{list-style:none;padding:0;margin:0 0 16px;display:flex;flex-direction:column;gap:12px}
+.safety-rules li{display:flex;gap:12px;align-items:flex-start}
+.safety-rules b{display:block;font-size:15px;margin-bottom:2px}
+.safety-rules p{margin:0;font-size:13px;line-height:1.4;color:var(--label-2)}
+
 /* ===================================================================== liquid glass === */
 /* The iOS 26 look: controls float over the content as glass — translucent and blurred, a bright
    rim where the light catches the edge, a soft shadow under them — in capsule shapes, with the

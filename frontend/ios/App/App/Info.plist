@@ -68,6 +68,10 @@
 	<string>Used to record the sound of a video you take of an exercise you add yourself.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Reads your steps, sleep, weight and workouts (from your iPhone, Apple Watch or Garmin) into the daily log, so you don't type them.</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>LiftLog only reads from Apple Health; it does not write to it.</string>
 </dict>
