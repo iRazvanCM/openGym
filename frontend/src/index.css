@@ -2343,6 +2343,22 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .cut-break-n span{font-size:11px;color:var(--label-2);text-align:center;line-height:1.2}
 .cut-break-t{font-size:13px;line-height:1.4;color:var(--label)}
 
+/* ------------------------------------------------- recipes, saved meals, protein -- */
+.food-meal-k i{display:block;font-style:normal;font-size:11px;color:var(--label-3);text-align:end}
+.food-closer{padding:12px 14px 8px}
+.food-closer-r{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:baseline;width:100%;padding:8px 0;border-top:var(--hair) solid var(--sep);background:none;text-align:start;font-size:15px;color:var(--label)}
+.food-closer-r b{font-variant-numeric:tabular-nums;color:var(--acc);font-weight:600}
+.food-closer-r span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.food-closer-r i{font-style:normal;font-size:13px;color:var(--label-2);font-variant-numeric:tabular-nums}
+.food-closer-r:active{opacity:.6}
+.recipe-list{padding:0 14px}
+.recipe-ing{padding-inline:0;gap:8px}
+.recipe-ing .lrow-m{min-width:0}
+.recipe-ing .lrow-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recipe-amt{width:96px;height:36px;flex:none}
+.recipe-amt .num{font-size:15px}
+.recipe-tot{margin-top:14px}
+
 /* ------------------------------------------------------------ off plan, plans -- */
 .food-off{display:flex;align-items:center;gap:12px;cursor:pointer}
 .food-off:active{background:var(--surface-2)}

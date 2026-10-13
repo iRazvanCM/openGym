@@ -217,8 +217,13 @@ export function normalizeFood(raw) {
     id: cleanText(String(raw.id ?? ''), 40) || uidOf(),
     name, brand: cleanText(raw.brand, 80), code: cleanText(raw.code, 32).replace(/\D/g, ''),
     unit: raw.unit === 'ml' ? 'ml' : 'g', per100,
-    src: raw.src === 'off' ? 'off' : 'custom',
+    src: raw.src === 'off' ? 'off' : raw.src === 'recipe' ? 'recipe' : 'custom',
     at: Number(raw.at) > 0 ? Number(raw.at) : Date.now(),
+  }
+  if (f.src === 'recipe') {
+    f.ingredients = normalizeIngredients(raw.ingredients)
+    const cooked = num(raw.cooked, 50000)
+    if (cooked && cooked > 0) f.cooked = r1(cooked)
   }
   const amount = num(raw.serving?.amount, 5000)
   if (amount && amount > 0) f.serving = { label: cleanText(raw.serving.label, 40) || '', amount: r1(amount) }
@@ -241,6 +246,110 @@ export function saveMyFood(state, raw) {
 }
 
 export const myFoodByCode = (S, code) => (S?.foods || []).find(f => f.code && f.code === String(code).replace(/\D/g, '')) || null
+
+/* ------------------------------------------------------------------------- recipes -- */
+// A dish cooked in a pot: its ingredients weighed raw, the pot weighed once cooked, and the dish
+// kept as a food of one's own (S.foods, src 'recipe') whose label is the whole pot's numbers per
+// 100 g of what came out. Cooking loses water, not calories, so 1 kg of raw ingredients that
+// cooks down to 800 g carries all of its calories into those 800 g; a portion is then weighed on
+// the plate and logged like any food. Without a cooked weight, the raw total stands in.
+
+/** An ingredient in its stable shape: { name, ref, code, unit, amount, per100 }, or null. */
+export function normalizeIngredient(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const per100 = cleanPer100(raw.per100)
+  const amount = num(raw.amount, 20000)
+  if (!per100 || !(amount > 0)) return null
+  return { name: cleanText(raw.name, 120) || 'Food', ref: cleanText(raw.ref, 80), code: cleanText(raw.code, 32), unit: raw.unit === 'ml' ? 'ml' : 'g', amount: r1(amount), per100 }
+}
+
+export const normalizeIngredients = list => (Array.isArray(list) ? list : []).map(normalizeIngredient).filter(Boolean).slice(0, 60)
+
+/**
+ * A recipe's numbers: { raw, weight, total: { kcal, p, c, f }, per100 } — `raw` the ingredients'
+ * weight, `weight` the cooked pot's (or the raw weight without one), `per100` the label of 100 g
+ * of the cooked dish. Null with no ingredients.
+ */
+export function recipeNumbers(ingredients, cooked = null) {
+  const list = normalizeIngredients(ingredients)
+  if (!list.length) return null
+  const total = foodTotals(list.map(i => portion(i.per100, i.amount)))
+  const raw = list.reduce((n, i) => n + i.amount, 0)
+  const weight = Number(cooked) > 0 ? Number(cooked) : raw
+  const per100 = cleanPer100({ kcal: total.kcal / weight * 100, p: total.p / weight * 100, c: total.c / weight * 100, f: total.f / weight * 100 })
+  return { raw: r1(raw), weight: r1(weight), total: { kcal: Math.round(total.kcal), p: total.p, c: total.c, f: total.f }, per100 }
+}
+
+/* --------------------------------------------------------------------- saved meals -- */
+// A meal eaten again and again — the usual breakfast, the shake after training — kept by name and
+// added to any day in one tap (the diary otherwise only copies from the day before). S.meals:
+//   [{ id, name, items: [diary item], at }]
+
+/** A saved meal in its stable shape, or null without a name or items. */
+export function normalizeMeal(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const name = cleanText(raw.name, 80)
+  const items = normalizeFoodList((Array.isArray(raw.items) ? raw.items : []).map((it, i) => ({ ...it, id: it?.id || 'm' + i }))).slice(0, 40)
+  if (!name || !items.length) return null
+  return { id: cleanText(String(raw.id ?? ''), 40) || uidOf(), name, items, at: Number(raw.at) > 0 ? Number(raw.at) : Date.now() }
+}
+
+export const mealsOf = S => (Array.isArray(S?.meals) ? S.meals : []).map(normalizeMeal).filter(Boolean)
+
+/** Keeps a meal in S.meals: replaces the one with its id or name, newest first. Returns it. */
+export function saveMeal(state, raw, now = Date.now()) {
+  const m = normalizeMeal({ ...raw, at: now })
+  if (!m) return null
+  const same = x => x.id === m.id || x.name.toLowerCase() === m.name.toLowerCase()
+  const old = mealsOf(state).find(same)
+  if (old) m.id = old.id
+  state.meals = [m, ...mealsOf(state).filter(x => !same(x))].slice(0, 50)
+  return m
+}
+
+/** Adds a saved meal's items to `meal` of a day, as new items. Returns how many. */
+export function addMealToDay(state, iso, saved, meal, now = Date.now()) {
+  const m = normalizeMeal(saved)
+  if (!m) return 0
+  m.items.forEach((it, i) => addFoodItem(state, iso, { ...it, id: null, meal, at: now + i }, now))
+  return m.items.length
+}
+
+/* ------------------------------------------------------------- closing the protein -- */
+
+/**
+ * What would close the day's protein: up to three foods, each with the grams that bring `need`
+ * grams of protein — the person's own lean foods first (eaten lately, or kept), then the built-in
+ * ones richest in protein for their calories. A food is only offered when its amount is a normal
+ * portion (under 600 g) and its calories fit in what is left (`kcalLeft`, with 100 to spare).
+ *   → [{ food, grams, kcal, p }]
+ */
+export function proteinCloser(S, { need, kcalLeft = Infinity, today, lang = 'en', limit = 3 } = {}) {
+  if (!(need >= 5)) return []
+  const lean = f => f?.per100 && f.per100.p >= 8 && f.per100.kcal > 0 && (4 * f.per100.p) / f.per100.kcal >= 0.45
+  const seen = new Set()
+  const pool = []
+  const take = (food, mine) => {
+    if (!lean(food)) return
+    const key = food.code ? 'c' + food.code : food.ref || food.id || foldText(food.name)
+    if (seen.has(key)) return
+    seen.add(key)
+    pool.push({ food, mine })
+  }
+  for (const r of recentFoods(S, today, { days: 45, limit: 60 })) take(foodFor(S, r, lang) || r, true)
+  for (const f of S?.foods || []) take(f, true)
+  for (const f of basicFoods(lang)) take(f, false)
+  const out = []
+  const ranked = pool.sort((a, b) => (b.mine - a.mine) || ((4 * b.food.per100.p) / b.food.per100.kcal - (4 * a.food.per100.p) / a.food.per100.kcal))
+  for (const { food } of ranked) {
+    const grams = Math.ceil(need / food.per100.p * 100 / 5) * 5
+    const tot = portion(food.per100, grams)
+    if (grams > 600 || tot.kcal > kcalLeft + 100) continue
+    out.push({ food, grams, kcal: tot.kcal, p: tot.p })
+    if (out.length >= limit) break
+  }
+  return out
+}
 
 /* -------------------------------------------------------------------------- search -- */
 

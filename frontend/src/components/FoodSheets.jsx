@@ -15,9 +15,10 @@ import { useMemo, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
-  MEALS, MEAL_NAMES, addFoodItem, cleanPer100, foodFor, foodLang, lastPortionOf, myFoodByCode, normalizeFood,
-  portion, recentFoods, removeFoodItem, saveMyFood, searchLocal, updateFoodItem, basicCats,
+  MEALS, MEAL_NAMES, addFoodItem, addMealToDay, cleanPer100, foodFor, foodLang, foodTotals, lastPortionOf, mealsOf, myFoodByCode,
+  normalizeFood, portion, recentFoods, removeFoodItem, saveMyFood, searchLocal, updateFoodItem, basicCats,
 } from '../lib/food.js'
+import { recipeSheet } from './RecipeSheet.jsx'
 import { cleanCode, offProduct, offSearch } from '../lib/off.js'
 import { MOBILE } from '../lib/mobile.js'
 import { todayISO } from '../lib/format.js'
@@ -68,11 +69,11 @@ function MealChips({ value, onChange }) {
 
 /* ================================================================ portion == */
 
-function Portion({ date, meal: meal0, food, item, last, close, onDone }) {
+function Portion({ date, meal: meal0, food, item, last, start, close, onDone, onPick }) {
   const base = food.unit === 'ml' ? 'ml' : 'g'
   const serving = food.serving?.amount > 0 ? food.serving : null
   const [mode, setMode] = useState(() => (item ? (item.sv && serving ? 'sv' : item.unit === 'ml' ? 'ml' : 'g') : base))
-  const [n, setN] = useState(() => (item ? (item.sv && serving ? item.sv : item.amount) : 100))
+  const [n, setN] = useState(() => (item ? (item.sv && serving ? item.sv : item.amount) : start > 0 ? start : 100))
   const [meal, setMeal] = useState(item?.meal || meal0)
   const grams = mode === 'sv' ? (n || 0) * serving.amount : (n || 0)
   const tot = portion(food.per100, grams)
@@ -105,6 +106,8 @@ function Portion({ date, meal: meal0, food, item, last, close, onDone }) {
   const save = () => {
     if (!(grams > 0) || grams > 10000) { toast(t('Enter an amount')); return }
     const sv = mode === 'sv' ? n : null
+    // an ingredient for a recipe: handed back, nothing logged
+    if (onPick) { close(); onPick({ food, grams, unit: shownUnit }); return }
     update(s => {
       if (item) { updateFoodItem(s, date, item.id, { meal, amount: grams, unit: shownUnit, sv }); return }
       // a product from Open Food Facts is kept, so the next scan needs no connection
@@ -158,17 +161,26 @@ function Portion({ date, meal: meal0, food, item, last, close, onDone }) {
       <div><b>{fmtAmt(tot.f)}</b><span>{t('fat')}</span></div>
     </div>
 
-    <MealChips value={meal} onChange={setMeal} />
+    {!onPick && <MealChips value={meal} onChange={setMeal} />}
 
-    <Button variant="primary" onClick={save}>{item ? t('Save') : t('Add to {0}', mealName(meal))}</Button>
+    <Button variant="primary" onClick={save}>{onPick ? t('Add to the recipe') : item ? t('Save') : t('Add to {0}', mealName(meal))}</Button>
     {item && <><div style={{ height: 6 }} /><Button variant="ghost" className="danger-text" icon="trash" onClick={remove}>{t('Remove from the diary')}</Button></>}
   </>
 }
 
-/** The portion screen for a food — a new item for `meal`, or `item` to change. */
-export function portionSheet({ date, meal, food, item = null, last = null, onDone }) {
-  return ui().openSheet(close => <Portion date={date} meal={meal} food={food} item={item} last={last} close={close} onDone={onDone} />)
+/**
+ * The portion screen for a food — a new item for `meal`, or `item` to change. `start` opens it at
+ * that amount; `onPick` makes it an ingredient's amount, handed back instead of logged.
+ */
+export function portionSheet({ date, meal, food, item = null, last = null, start = null, onDone, onPick }) {
+  return ui().openSheet(close => <Portion date={date} meal={meal} food={food} item={item} last={last} start={start} close={close} onDone={onDone} onPick={onPick} />)
 }
+
+/** Choosing an ingredient for a recipe: the food finder, then its raw amount, handed to `cb`. */
+export const pickIngredient = cb => addFoodSheet({ onPick: cb })
+
+/** The recipe editor wired to the food finder. */
+export const openRecipe = (food = null, onSaved) => recipeSheet({ food, onSaved, pickIngredient })
 
 /* ============================================================ own food == */
 
@@ -312,9 +324,9 @@ function FoodRow({ food, sub, kcal, onClick, onEdit }) {
   </div>
 }
 
-const per100Line = f => `${f.brand ? f.brand + ' · ' : ''}${t('{0} kcal per 100 {1}', fmtKcal(f.per100.kcal), f.unit === 'ml' ? 'ml' : 'g')}`
+const per100Line = f => `${f.src === 'recipe' ? t('Recipe') + ' · ' : f.brand ? f.brand + ' · ' : ''}${t('{0} kcal per 100 {1}', fmtKcal(f.per100.kcal), f.unit === 'ml' ? 'ml' : 'g')}`
 
-function AddFood({ date, meal: meal0, close }) {
+function AddFood({ date, meal: meal0, close, onPick }) {
   const S = useStore(s => s.S)
   const L = lang()
   const [meal, setMeal] = useState(meal0)
@@ -333,10 +345,19 @@ function AddFood({ date, meal: meal0, close }) {
   const recent = useMemo(() => recentFoods(S, today), [S, today])
   const local = useMemo(() => searchLocal(S, query, L, query ? null : cat), [S, query, L, cat])
 
-  const pick = food => portionSheet({ date, meal, food, last: lastPortionOf(useStore.getState().S, food), onDone: () => setAdded(n => n + 1) })
+  // picking an ingredient for a recipe hands the food and its amount back and closes the finder
+  const handBack = onPick ? x => { close(); onPick(x) } : null
+  const pick = food => portionSheet({ date, meal, food, last: lastPortionOf(useStore.getState().S, food), onDone: () => setAdded(n => n + 1), onPick: handBack })
   const pickRecent = row => {
     const food = foodFor(useStore.getState().S, row, L) || row
-    portionSheet({ date, meal, food, last: { amount: row.lastAmount, sv: row.lastSv, unit: row.unit }, onDone: () => setAdded(n => n + 1) })
+    portionSheet({ date, meal, food, last: { amount: row.lastAmount, sv: row.lastSv, unit: row.unit }, onDone: () => setAdded(n => n + 1), onPick: handBack })
+  }
+  const saved = onPick ? [] : mealsOf(S)
+  const addSaved = m => {
+    let n = 0
+    update(s => { n = addMealToDay(s, date, m, meal) })
+    toast(t('{0} added to {1}', m.name, mealName(meal)))
+    setAdded(x => x + n)
   }
 
   const lookUp = async raw => {
@@ -382,14 +403,14 @@ function AddFood({ date, meal: meal0, close }) {
     }
   }
 
-  const editMine = f => foodFormSheet({ food: f })
+  const editMine = f => (f.src === 'recipe' ? openRecipe(f) : foodFormSheet({ food: f }))
   // a shelf chosen shows all of it; the whole list, a first screenful until asked for more
   const basics = query || allBasics || cat ? local.basics : local.basics.slice(0, 12)
   const onlineHere = online.q === query && online.state !== 'idle'
 
   return <>
-    <h3 style={{ marginBottom: 10 }}>{t('Add to {0}', mealName(meal))}</h3>
-    <MealChips value={meal} onChange={setMeal} />
+    <h3 style={{ marginBottom: 10 }}>{onPick ? t('Add an ingredient') : t('Add to {0}', mealName(meal))}</h3>
+    {!onPick && <MealChips value={meal} onChange={setMeal} />}
     <div className="picker-search">
       <form onSubmit={e => { e.preventDefault(); searchOnline() }}>
         <SearchField ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onClear={() => setQ('')} onFocus={syncKeyboard}
@@ -398,8 +419,9 @@ function AddFood({ date, meal: meal0, close }) {
     </div>
     <div className="food-acts">
       {MOBILE && <Button size="sm" variant="tinted" icon="barcode" onClick={scan} disabled={busy}>{t('Scan')}</Button>}
-      <Button size="sm" icon="bolt" onClick={() => quickAddSheet({ date, meal })}>{t('Quick add')}</Button>
+      {!onPick && <Button size="sm" icon="bolt" onClick={() => quickAddSheet({ date, meal })}>{t('Quick add')}</Button>}
       <Button size="sm" icon="plus" onClick={() => foodFormSheet({ onSaved: pick })}>{t('New food')}</Button>
+      {!onPick && <Button size="sm" icon="list" onClick={() => openRecipe(null, pick)}>{t('Recipe')}</Button>}
     </div>
     {busy && <div className="food-busy muted small"><span className="food-spin" />{t('Looking it up…')}</div>}
 
@@ -410,6 +432,14 @@ function AddFood({ date, meal: meal0, close }) {
           <span className="lrow-m"><span className="lrow-t">{t('Look up barcode {0}', code)}</span></span>
           <Icon name="chevronRight" className="lrow-c" />
         </button>
+      </div>
+    </div>}
+
+    {!query && saved.length > 0 && <div className="sect">
+      <span className="sect-t">{t('Saved meals')}</span>
+      <div className="sect-b">
+        {saved.map(m => <FoodRow key={m.id} food={m} kcal={foodTotals(m.items).kcal}
+          sub={m.items.length === 1 ? t('1 item') : t('{0} items', m.items.length)} onClick={() => addSaved(m)} onEdit={() => savedMealSheet(m)} />)}
       </div>
     </div>}
 
@@ -464,13 +494,46 @@ function AddFood({ date, meal: meal0, close }) {
 
     {query && !code && !local.mine.length && !local.basics.length && !onlineHere && <div className="muted small food-note">{t('Nothing on the phone matches. Search Open Food Facts, or add it as a new food.')}</div>}
 
-    {added > 0 && <div className="food-done">
+    {added > 0 && !onPick && <div className="food-done">
       <Button variant="primary" onClick={close}>{added === 1 ? t('Done · 1 added') : t('Done · {0} added', added)}</Button>
     </div>}
   </>
 }
 
-/** Finding a food to add to `meal` of `date`. */
-export function addFoodSheet({ date, meal }) {
-  return ui().openSheet(close => <AddFood date={date} meal={meal} close={close} />)
+/** Finding a food to add to `meal` of `date` — or, with `onPick`, an ingredient for a recipe. */
+export function addFoodSheet({ date, meal, onPick }) {
+  return ui().openSheet(close => <AddFood date={date} meal={meal} close={close} onPick={onPick} />)
 }
+
+/* ========================================================= saved meals == */
+
+function SavedMeal({ meal, close }) {
+  const [name, setName] = useState(meal.name)
+  const tot = foodTotals(meal.items)
+  const save = () => {
+    if (!name.trim()) { toast(t('Give the meal a name')); return }
+    update(s => { s.meals = (s.meals || []).map(m => (m.id === meal.id ? { ...m, name: name.trim(), at: Date.now() } : m)) })
+    toast(t('Saved'))
+    close()
+  }
+  const remove = () => {
+    update(s => { s.meals = (s.meals || []).filter(m => m.id !== meal.id) })
+    toast(t('Meal removed'))
+    close()
+  }
+  return <>
+    <h3 style={{ marginBottom: 4 }}>{t('Saved meal')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('{0} kcal · P {1} · C {2} · F {3}', fmtKcal(tot.kcal), fmtAmt(tot.p), fmtAmt(tot.c), fmtAmt(tot.f))}</div>
+    <TextField value={name} maxLength={80} placeholder={t('Name')} aria-label={t('Name')} onChange={e => setName(e.target.value)} />
+    <div className="sect-b" style={{ marginTop: 12 }}>
+      {meal.items.map(it => <div className="lrow" key={it.id}><span className="lrow-m"><span className="lrow-t">{it.name}</span><span className="lrow-s">{itemLine(it)}</span></span>
+        <span className="food-row-k">{fmtKcal(it.kcal)}<i>kcal</i></span></div>)}
+    </div>
+    <div style={{ height: 14 }} />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+    <div style={{ height: 6 }} />
+    <Button variant="ghost" className="danger-text" icon="trash" onClick={remove}>{t('Delete this meal')}</Button>
+  </>
+}
+
+export const savedMealSheet = meal => ui().openSheet(close => <SavedMeal meal={meal} close={close} />)

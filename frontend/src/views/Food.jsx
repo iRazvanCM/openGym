@@ -12,13 +12,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { KCAL_PER_KG, activeBreak, addDays, carbsFor, cutOf, cutReport, isIso, logFor } from '../lib/cut.js'
-import { MEALS, addFoodItem, copyMeal, dayFood, foodTotals, mealTotals, removeFoodItem } from '../lib/food.js'
+import { MEALS, addFoodItem, addMealToDay, mealAt, copyMeal, dayFood, foodLang, foodTotals, mealTotals, mealsOf, proteinCloser, removeFoodItem, saveMeal } from '../lib/food.js'
+import { getLang } from '../lib/i18n.js'
 import { fmtDate, todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import { tappable } from '../lib/use-sheet-keyboard.js'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
-import { addFoodSheet, editFoodItem, fmtAmt, fmtKcal, itemLine, mealName, quickAddSheet } from '../components/FoodSheets.jsx'
+import { addFoodSheet, editFoodItem, fmtAmt, fmtKcal, itemLine, mealName, portionSheet, quickAddSheet } from '../components/FoodSheets.jsx'
 import { dailyLogSheet, fmt1 } from '../components/DailyLog.jsx'
 import { cutSettingsSheet } from './Progress.jsx'
 import { PlansCard, offPlanSheet } from '../components/OffPlan.jsx'
@@ -76,9 +77,21 @@ export default function Food() {
   const mealMenu = m => {
     const prev = yesterday.filter(it => it.meal === m)
     const mine = items.filter(it => it.meal === m)
+    const saved = mealsOf(S)
     menuSheet({
       title: mealName(m),
       items: [
+        saved.length > 0 && {
+          icon: 'list', label: t('Add a saved meal'), sub: saved.slice(0, 3).map(x => x.name).join(', '),
+          onClick: () => menuSheet({
+            title: t('Add to {0}', mealName(m)),
+            items: saved.map(x => ({ icon: 'utensils', label: x.name, sub: t('{0} kcal', fmtKcal(foodTotals(x.items).kcal)), onClick: () => { update(s => { addMealToDay(s, date, x, m) }); toast(t('{0} added to {1}', x.name, mealName(m))) } })),
+          }),
+        },
+        mine.length > 0 && {
+          icon: 'plusCircle', label: t('Save as a meal'), sub: t('Add it to any day in one tap'),
+          onClick: () => { let kept = null; update(s => { kept = saveMeal(s, { name: t('My {0}', mealName(m).toLowerCase()) + (mealsOf(s).some(x => x.name === t('My {0}', mealName(m).toLowerCase())) ? ' ' + (mealsOf(s).length + 1) : ''), items: mine }) }); if (kept) toast(t('Saved as “{0}”. Rename it in Add food → Saved meals.', kept.name)) },
+        },
         prev.length > 0 && {
           icon: 'copy', label: t('Copy from the day before'), sub: plural(prev.length, '{0} item', '{0} items'),
           onClick: () => { let n = 0; update(s => { n = copyMeal(s, addDays(date, -1), date, m) }); toast(plural(n, '{0} item copied', '{0} items copied')) },
@@ -94,6 +107,10 @@ export default function Food() {
       ],
     })
   }
+
+  // what would close the day's protein, from the person's own lean foods first (lib/food.js)
+  const closers = useMemo(() => (goal.p - tot.p >= 10 && tot.n > 0
+    ? proteinCloser(S, { need: goal.p - tot.p, kcalLeft: Math.max(0, left), today, lang: foodLang(getLang()) }) : []), [S, goal.p, tot.p, tot.n, left, today])
 
   const complete = on => update(s => { const e = (s.dailyLog || []).find(x => x.d === date); if (e) { if (on) e.done = true; else delete e.done; e.t = Date.now() } })
 
@@ -155,13 +172,20 @@ export default function Food() {
       </div>
     </div>
 
+    {closers.length > 0 && <div className="card food-closer">
+      <div className="small muted" style={{ marginBottom: 6 }}>{t('{0} g of protein to go. Any one of these closes it:', fmtAmt(Math.round(goal.p - tot.p)))}</div>
+      {closers.map(x => <button key={x.food.id || x.food.ref || x.food.name} className="food-closer-r" onClick={() => portionSheet({ date, meal: mealAt(), food: x.food, start: x.grams })}>
+        <b>{x.grams} g</b><span>{x.food.name}</span><i>{t('{0} kcal', fmtKcal(x.kcal))}</i>
+      </button>)}
+    </div>}
+
     {MEALS.map(m => {
       const mine = items.filter(it => it.meal === m)
       return <div className="card food-meal" key={m}>
         <div className="row between food-meal-h">
           <h2>{mealName(m)}</h2>
           <div className="row" style={{ gap: 2 }}>
-            {mine.length > 0 && <span className="food-meal-k">{fmtKcal(byMeal[m].kcal)} kcal</span>}
+            {mine.length > 0 && <span className="food-meal-k">{fmtKcal(byMeal[m].kcal)} kcal<i>{t('{0} g protein', fmtAmt(Math.round(byMeal[m].p)))}</i></span>}
             <button className="iconbtn" onClick={() => mealMenu(m)} aria-label={t('More for {0}', mealName(m))}><Icon name="more" /></button>
           </div>
         </div>
