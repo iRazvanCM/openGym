@@ -36,6 +36,7 @@ import { workoutDay } from './history.js'
 import { e1rmSeries } from './onerm.js'
 import { isCardio, exOr } from './exercises.js'
 import { entryNutrition, normalizeFoodList } from './food.js'
+import { excusedOn } from './day-notes.js'
 
 export const KCAL_PER_KG = 7700
 export const LB_PER_KG = 2.20462262
@@ -416,6 +417,46 @@ function streak(today, has) {
   return n
 }
 
+/**
+ * How regular the logging is, the forgiving way (report, item 6): of the last seven days, how many
+ * were logged, weighed and alcohol-free — "6/7", never a streak that drops to nought after one
+ * missed day, which costs more motivation than the day itself (a broken streak lowers the next
+ * attempts; Duolingo kept more people by making one easier to keep). A diet break day or a day
+ * noted as sick or away (lib/day-notes.js) that went unlogged is left out of the count instead of
+ * against it, and does not break a run. The seven days end today, or yesterday while today has
+ * nothing yet. Each comes with the current run and the best one.
+ *   → { from, to, log: { n, of, run, best }, weigh: {…}, dry: {…} }
+ */
+export function consistency(S, today = todayISO(), cut = cutOf(S)) {
+  const log = new Set((S?.dailyLog || []).filter(e => e && entryNutrition(e).kcal != null).map(e => e.d))
+  const weigh = new Set(weighIns(S?.bodyweight).map(b => b.d))
+  const dry = new Set((S?.dailyLog || []).filter(e => e?.alcohol === false).map(e => e.d))
+  const excused = d => !!activeBreak(cut, d) || excusedOn(S, d)
+  const to = log.has(today) || weigh.has(today) ? today : addDays(today, -1)
+  const from = addDays(to, -6)
+  const first = [...log, ...weigh].sort()[0] || to
+  const count = set => {
+    let n = 0, of = 0
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      if (set.has(d)) { n++; of++ } else if (!excused(d)) of++
+    }
+    // the run up to the end of the window, an excused day stepped over
+    let run = 0
+    for (let d = to; d >= first; d = addDays(d, -1)) {
+      if (set.has(d)) run++
+      else if (!excused(d)) break
+    }
+    // the best run since the first entry
+    let best = 0, cur = 0
+    for (let d = first; d <= to; d = addDays(d, 1)) {
+      if (set.has(d)) best = Math.max(best, ++cur)
+      else if (!excused(d)) cur = 0
+    }
+    return { n, of, run, best }
+  }
+  return { from, to, log: count(log), weigh: count(weigh), dry: count(dry) }
+}
+
 export function streaks(S, today = todayISO()) {
   const logged = new Set((S?.dailyLog || []).filter(logHasValues).map(e => e.d))
   const dry = new Set((S?.dailyLog || []).filter(e => e?.alcohol === false).map(e => e.d))
@@ -668,6 +709,7 @@ export function cutReport(S, today = todayISO()) {
     started, dayN, week, startW, goalW, lost, toGo, pctDone, eta, planEta, planAt, planW, vsPlan, planHeld, weekDrops,
     week7, prev7, tdee, maintenance, strength, phase, action, settling, advice, breakNow: brk, water, breakResult,
     streaks: streaks(S, today),
+    consistency: consistency(S, today, cut),
   }
 }
 

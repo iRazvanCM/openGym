@@ -373,6 +373,7 @@ export default function Progress() {
 
   const startToday = () => { update(s => { s.cut = { ...cutOf(s), start: today } }); toast(t('Cut started. Log your weight every morning.')) }
   const recent = Array.from({ length: 14 }, (_, i) => addDays(today, -i))
+  const con = r.consistency
   const kcalTone = w7.kcal.n ? (w7.kcal.avg <= cut.kcal + 100 && w7.kcal.avg >= cut.kcal - 300 ? 'good' : 'warn') : ''
 
   return <div className="narrow">
@@ -459,12 +460,12 @@ export default function Progress() {
         sub={t('target {0} h', fmtNum(cut.sleep))} />
       <Tile icon="calculator" label={t('Maintenance')} value={r.tdee.ready ? fmtInt(r.tdee.tdee) : '≈ ' + fmtInt(cut.maintenance)}
         sub={r.tdee.ready ? (r.tdee.held ? t('held from {0} over the break', fmtDate(r.tdee.asOf, true)) : t('from your last {0} days', r.tdee.span + 1)) : t('estimated after ~3 weeks of logging')} />
-      <Tile icon="shield" label={t('Alcohol-free')} value={plural(r.streaks.alcoholFree, '{0} day', '{0} days')} tone={r.streaks.alcoholFree >= 7 ? 'good' : ''}
-        sub={t('in a row · {0} drinking days this week', w7.alcoholDays)} />
+      <Tile icon="shield" label={t('Alcohol-free')} value={`${con.dry.n} / ${con.dry.of}`} tone={con.dry.of > 0 && con.dry.n === con.dry.of ? 'good' : ''}
+        sub={plural(con.dry.best, 'days this week · best run {0} day', 'days this week · best run {0} days')} />
       {waist && <Tile icon="ruler" label={t('Waist')} value={fmtNum(toMeasurementDisplay(waist.value, S.unit)) + ' ' + measurementUnit(S.unit)} tone={waistDelta != null && waistDelta < 0 ? 'good' : ''}
         sub={waistDelta != null ? t('{0} since the start', (waistDelta > 0 ? '+' : '−') + fmtNum(Math.abs(waistDelta)) + ' ' + measurementUnit(S.unit)) : fmtDate(waist.entry.d, true)} />}
-      <Tile icon="clipboard" label={t('Logging streak')} value={plural(r.streaks.log, '{0} day', '{0} days')} tone={r.streaks.log >= 7 ? 'good' : ''}
-        sub={t('weigh-in streak {0}', r.streaks.weighIn)} />
+      <Tile icon="clipboard" label={t('Logged')} value={`${con.log.n} / ${con.log.of}`} tone={con.log.of > 0 && con.log.n >= con.log.of - 1 ? 'good' : ''}
+        sub={t('weighed {0} / {1} · best run {2}', con.weigh.n, con.weigh.of, plural(con.log.best, '{0} day', '{0} days'))} />
     </div>
 
     {r.trend.length > 0 && <div className="card">

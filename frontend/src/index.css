@@ -2343,6 +2343,22 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .cut-break-n span{font-size:11px;color:var(--label-2);text-align:center;line-height:1.2}
 .cut-break-t{font-size:13px;line-height:1.4;color:var(--label)}
 
+/* ------------------------------------------------------------ off plan, plans -- */
+.food-off{display:flex;align-items:center;gap:12px;cursor:pointer}
+.food-off:active{background:var(--surface-2)}
+.off-kcal,.off-trig{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 14px}
+.off-kcal .chip,.off-trig .chip{background:var(--surface-2);font-variant-numeric:tabular-nums}
+.off-kcal .chip.on{background:var(--acc);color:var(--on-acc)}
+.off-trig .chip{display:inline-flex;align-items:center;gap:6px;padding:9px 13px}
+.off-trig .chip .icn{font-size:14px;color:var(--orange)}
+.off-own{width:120px;height:36px;flex:none}
+.off-own .num{font-size:15px}
+.food-plans .plan{display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-top:var(--hair) solid var(--sep);font-size:14px;line-height:1.4;cursor:pointer}
+.food-plans .plan:active{opacity:.6}
+.plan-ic{flex:none;font-size:15px;color:var(--orange);margin-top:2px}
+.plan-sug{margin-top:8px;padding:10px 12px;border-radius:var(--r);background:color-mix(in srgb,var(--orange) 10%,transparent)}
+.plan-sug-t{font-size:14px;line-height:1.4;margin-top:3px}
+
 /* ------------------------------------------------------------ weekly check-in -- */
 .ci-card{display:flex;align-items:center;gap:12px;cursor:pointer;border:1px solid color-mix(in srgb,var(--purple) 35%,transparent)}
 .ci-card:active{background:var(--surface-2)}

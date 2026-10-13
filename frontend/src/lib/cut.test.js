@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CUT_DEFAULTS, addDays, cardioMinutesOn, cutOf, cutReport, dailyLogCSV, daysBetween, expenditure,
-  kcalForRate, logHasValues, normalizeDailyLogState, normalizeLogEntry, strengthCheck, streaks,
+  consistency, kcalForRate, logHasValues, normalizeDailyLogState, normalizeLogEntry, strengthCheck, streaks,
   summarize, trendOn, weeklyRows, weightTrend,
 } from './cut.js'
 
@@ -335,5 +335,36 @@ describe('the food diary in the log', () => {
     expect(cutOf({}).carbs).toBe(190)
     expect(cutOf({ cut: { kcal: 1900 } }).carbs).toBe(165)
     expect(cutOf({ cut: { kcal: 1000, protein: 200, fat: 80 } }).carbs).toBe(0)
+  })
+})
+
+describe('forgiving counters', () => {
+  const day = '2026-11-20'
+  const log = (d, extra = {}) => ({ d, t: 1, kcal: 2000, ...extra })
+  const days = n => Array.from({ length: n }, (_, i) => addDays(day, -i))
+
+  it('counts the last seven days, and a missed day costs one, not the run so far', () => {
+    const S = { dailyLog: days(20).filter(d => d !== addDays(day, -2)).map(d => log(d, { alcohol: false })), bodyweight: days(7).map(d => ({ d, w: 100, t: 1 })) }
+    const c = consistency(S, day)
+    expect(c.log).toMatchObject({ n: 6, of: 7, run: 2, best: 17 })
+    expect(c.weigh).toMatchObject({ n: 7, of: 7 })
+    expect(c.dry.n).toBe(6)
+  })
+
+  it('leaves a break day or a sick day out of the count and the run', () => {
+    const sick = addDays(day, -3)
+    const S = {
+      cut: { breaks: [{ from: addDays(day, -1), to: addDays(day, -1) }] },
+      dayNotes: { [sick]: { tag: 'sick', _ts: 1 } },
+      dailyLog: days(10).filter(d => d !== sick && d !== addDays(day, -1)).map(d => log(d)),
+      bodyweight: [],
+    }
+    const c = consistency(S, day)
+    expect(c.log).toMatchObject({ n: 5, of: 5, run: 8, best: 8 })
+  })
+
+  it('ends at yesterday while today has nothing yet', () => {
+    const S = { dailyLog: days(8).slice(1).map(d => log(d)), bodyweight: [] }
+    expect(consistency(S, day)).toMatchObject({ to: addDays(day, -1), log: { n: 7, of: 7, run: 7 } })
   })
 })

@@ -26,6 +26,9 @@ import { useSheetKeyboard } from '../lib/use-sheet-keyboard.js'
 import Icon from './Icon.jsx'
 import { Button, NumberField, SearchField, Segmented, TextField } from './ui.jsx'
 import { APP_NAME } from '../lib/brand.js'
+import { TRIGGER_LABEL } from '../lib/offplan.js'
+
+const triggerName = trig => t(TRIGGER_LABEL[trig] || 'Off plan')
 
 const ui = () => useUI.getState()
 const toast = (m, o) => ui().toast(m, o)
@@ -41,8 +44,9 @@ const macroLine = x => t('P {0} · C {1} · F {2}', fmtAmt(x.p), fmtAmt(x.c), fm
 /** "1 serving", "2.5 servings". */
 export const servings = n => (n === 1 ? t('1 serving') : t('{0} servings', fmtAmt(n)))
 
-/** What a diary item says under its name: brand, amount (and servings), macros. */
+/** What a diary item says under its name: brand, amount (and servings), macros — or, off plan, its trigger. */
 export function itemLine(it) {
+  if (it.off) return [t('Off plan'), it.trig ? triggerName(it.trig) : null].filter(Boolean).join(' · ')
   const parts = []
   if (it.brand) parts.push(it.brand)
   if (it.amount != null) parts.push(it.sv ? `${servings(it.sv)} · ${fmtAmt(it.amount)} ${it.unit}` : `${fmtAmt(it.amount)} ${it.unit}`)

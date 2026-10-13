@@ -6,7 +6,8 @@
 // the totals typed into the daily log are for days without a diary. An item is:
 //
 //   { id, meal: 'b' | 'l' | 'd' | 's', name, brand, code, src: 'off' | 'basic' | 'custom' | 'quick',
-//     ref, amount, unit: 'g' | 'ml', sv?, per100: { kcal, p, c, f, fib? }, kcal, p, c, f, at }
+//     ref, amount, unit: 'g' | 'ml', sv?, per100: { kcal, p, c, f, fib? }, kcal, p, c, f, at,
+//     off?, trig? }   — `off` an entry logged as off plan, `trig` what set it off (lib/offplan.js)
 //
 // `per100` is what the label says per 100 g (or 100 ml); the item's own kcal/p/c/f are the portion,
 // worked out when it was logged and kept, so a food changed later never rewrites a past day.
@@ -78,6 +79,9 @@ export function normalizeFoodItem(raw) {
     at: Number(raw.at) > 0 ? Number(raw.at) : 0,
   }
   if (!item.id) return null
+  // an off-plan entry (lib/offplan.js), and what set it off
+  if (raw.off === true) item.off = true
+  if (typeof raw.trig === 'string' && /^[a-z]{2,12}$/.test(raw.trig)) item.trig = raw.trig
   if (per100 && amount != null && amount > 0) {
     item.per100 = per100
     item.amount = r1(amount)

@@ -21,6 +21,7 @@ import { Button } from '../components/ui.jsx'
 import { addFoodSheet, editFoodItem, fmtAmt, fmtKcal, itemLine, mealName, quickAddSheet } from '../components/FoodSheets.jsx'
 import { dailyLogSheet, fmt1 } from '../components/DailyLog.jsx'
 import { cutSettingsSheet } from './Progress.jsx'
+import { PlansCard, offPlanSheet } from '../components/OffPlan.jsx'
 import { menuSheet } from '../sheets.jsx'
 
 const update = fn => useStore.getState().update(fn)
@@ -174,6 +175,16 @@ export default function Food() {
         <button className="food-add" onClick={() => addFoodSheet({ date, meal: m })}><Icon name="plus" />{t('Add food')}</button>
       </div>
     })}
+
+    <div className="card food-off" {...tappable(() => offPlanSheet(date))}>
+      <span className="lrow-i" style={{ '--tint': 'var(--orange)' }}><Icon name="bolt" /></span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="food-more-t">{t('Off plan?')}</div>
+        <div className="small muted">{t('Log it in three taps: about how much, and what set it off.')}</div>
+      </div>
+      <Icon name="chevronRight" className="chev" />
+    </div>
+    <PlansCard today={today} />
 
     {tot.n > 0 && isToday && !done && <div className="card food-close">
       <div className="small muted" style={{ marginBottom: 10, lineHeight: 1.45 }}>{t('Done eating for today? Completing the diary counts today in your weekly averages.')}</div>
