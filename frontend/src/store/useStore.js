@@ -9,7 +9,8 @@ import { guestAllowed } from '../lib/guest.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth } from '../lib/health-sync.js'
 import { initAppleHealth } from '../lib/apple-health.js'
-import { moveToAppleLook } from '../lib/look.js'
+import { localMoves } from '../lib/look.js'
+import { diaryStamp } from '../lib/safety.js'
 import { refillIfComplete } from '../lib/rotation.js'
 import { liftLegacy } from '../lib/sync-legacy.js'
 import { mergeStates, localExtras, stampChange, highestStamp, stampRestore, stampReplace, inUnitOf, keepReset, resetIdsOf, mergeResetIds, entryKey } from '../lib/sync-merge.js'
@@ -79,6 +80,7 @@ const MIRROR_OWNER_FILE = 'opengym-state-owner.json'
 const CHECK_MIN_MS = 3000    // rev checks closer together than this are the same event (focus + visibility)
 const POLL_MS = 30000        // while the app is open and signed in, ask the server for its revision this often
 const AUTO_BACKUP_SOON_MS = 2000   // several photos picked at once make one backup
+const DIARY_BACKUP_MS = 30000      // a meal's items logged one after another make one backup
 // Whether `next` has a workout photo or video that `prev` had on none of its workouts.
 const workoutMediaHashes = S => (Array.isArray(S?.workouts) ? S.workouts : [])
   .flatMap(w => (Array.isArray(w?.media) ? w.media.map(m => m?.hash).filter(h => typeof h === 'string' && h) : []))
@@ -301,7 +303,7 @@ function loadState() {
       // account's copy keeps what it has, so a sync never sees a change nobody made
       let synced = false
       try { synced = !!localStorage.getItem('gym_owner') } catch { /* no storage: this device's own */ }
-      if (!synced) moveToAppleLook(s)
+      if (!synced) localMoves(s, { mobile: MOBILE })
       if (!saved.lang) s.lang = detectedLang()
       return s
     }
@@ -344,6 +346,7 @@ export const useStore = create((set, get) => {
   let pollTm = null
   let offlineChanges = false   // a push failed for lack of network — the next one that lands says so
   let backupTm = null      // phone: the auto-backup after workout media changed, on its debounce
+  let diaryTm = null       // phone: the auto-backup after a day was logged, on its debounce
   let adoptHold = false    // a sign-in's adoption has not decided yet: no pull, no push (ADOPT_KEY)
   let adopting = null      // the adoptProfile in flight
   let rejoined = false     // the account signing in is the one this copy already belongs to (setUser)
@@ -1358,6 +1361,12 @@ export const useStore = create((set, get) => {
       if (MOBILE && S.autoBackup && gainedWorkoutMedia(prev, S)) {
         clearTimeout(backupTm)
         backupTm = setTimeout(() => { backupTm = null; get().autoBackupNow() }, AUTO_BACKUP_SOON_MS)
+      } else if (MOBILE && S.autoBackup && diaryStamp(prev) !== diaryStamp(S)) {
+        // A day logged — food, weight, the daily log — is worth the day's copy as much as a
+        // workout: on a cut it is most of what gets logged. One copy a little after the last
+        // change, not one per item added.
+        clearTimeout(diaryTm)
+        diaryTm = setTimeout(() => { diaryTm = null; get().autoBackupNow() }, DIARY_BACKUP_MS)
       }
     },
     // An edit of a saved workout (lib/session-edit.js) is saved or dropped like any other change:
@@ -1911,7 +1920,7 @@ export const useStore = create((set, get) => {
         const saved = await nativeLoad()
         const S = get().S
         if (saved && (!hasData(S) || (saved._ts || 0) >= (S._ts || 0))) {
-          persist(moveToAppleLook(sanitizeAccent(Object.assign(clone(DEF), saved))), false, false)
+          persist(localMoves(sanitizeAccent(Object.assign(clone(DEF), saved)), { mobile: MOBILE }), false, false)
         } else if (hasData(S)) {
           nativePersist(true)   // first run after an update from a file-less version: seed the mirror
         }

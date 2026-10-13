@@ -72,10 +72,19 @@ describe('the Auto-backup subtitle', () => {
   it('names the chosen folder, or the default', async () => {
     const { autoBackupSubtitle } = await import('./BackupFolderRow.jsx')
     expect(autoBackupSubtitle({ uri: 'content://tree/Sync', label: 'SyncFolder' }, 14))
-      .toBe('Saves a dated copy to “SyncFolder” after finishing a workout or editing a routine, and keeps the newest 14.')
+      .toBe('Saves a dated copy to “SyncFolder” after you log a day or a workout, and keeps the newest 14.')
     expect(autoBackupSubtitle({ uri: 'content://tree/x' }, 14))
-      .toBe('Saves a dated copy to the folder you chose after finishing a workout or editing a routine, and keeps the newest 14.')
+      .toBe('Saves a dated copy to the folder you chose after you log a day or a workout, and keeps the newest 14.')
     for (const f of [{}, null, { lost: true, lostLabel: 'SyncFolder' }]) expect(autoBackupSubtitle(f, 14)).toContain('Documents/openGym')
+  })
+
+  // The iPhone shows the app's Documents folder in Files, and iCloud Drive is the way off the phone.
+  it('on the iPhone, names the folder as Files shows it and points to iCloud Drive', async () => {
+    const { autoBackupSubtitle } = await import('./BackupFolderRow.jsx')
+    const text = autoBackupSubtitle(null, 14, { ios: true })
+    expect(text).toContain('Files › On My iPhone › LiftLog › openGym')
+    expect(text).toContain('iCloud Drive')
+    expect(autoBackupSubtitle({ uri: 'bookmark:1', label: 'LiftLog backups' }, 14, { ios: true })).toContain('“LiftLog backups”')
   })
 
   it('the lost-folder warning is a warning row, not a big title', async () => {

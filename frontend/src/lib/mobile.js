@@ -14,6 +14,8 @@ import { isoOf, todayISO } from './format.js'
 import { effectiveRoutineIds } from './history.js'
 import { NUDGE_COPY, lineIndex, nudgeFor, nudgeMinute, toneOf } from './nudge.js'
 import { excusedOn } from './day-notes.js'
+import { EXPORT_NOTE_ID, SIGN_NOTE_IDS, buildSafetyNotifications } from './safety.js'
+import { referencedFiles } from './media-refs.js'
 
 export const MOBILE = import.meta.env.VITE_MOBILE === '1'
 
@@ -202,6 +204,20 @@ export function buildCutNotifications(S, now = new Date()) {
   return out
 }
 
+// The signature and export reminders of lib/safety.js, with what only the phone knows: the
+// signature's date (lib/signing.js, iPhone only) and when a backup last reached a chosen folder.
+async function safetyNotifications(S) {
+  try {
+    // the iPhone's: its signature runs out, and its app folder is all the data there is
+    const { Capacitor } = await import('@capacitor/core')
+    if (Capacitor.getPlatform() !== 'ios') return []
+    const { loadSigning } = await import('./signing.js')
+    const signing = await loadSigning()
+    const folder = await backupFolder()
+    return buildSafetyNotifications({ S, signing, folderAt: folder?.uri ? folder.at || 0 : 0, hasMedia: referencedFiles(S).length > 0 })
+  } catch (e) { return [] }
+}
+
 // (Re)schedule the workout-day reminder: one one-off notification per future calendar date in
 // the bounded window. Cheap enough to run after any state change — the plan or the reminder time
 // may just have been edited. `interactive` gates the OS permission prompt to the Settings toggle;
@@ -215,15 +231,19 @@ export async function syncReminder(S, interactive = false) {
       ...Array.from({ length: NUDGE_WINDOW_DAYS }, (_, d) => ({ id: NUDGE_ID_BASE + d })),
       ...Array.from({ length: CUT_WINDOW_DAYS }, (_, d) => ({ id: WEIGH_ID_BASE + d })),
       ...Array.from({ length: CUT_WINDOW_DAYS }, (_, d) => ({ id: LOG_ID_BASE + d })),
+      { id: EXPORT_NOTE_ID }, ...SIGN_NOTE_IDS.map(id => ({ id })),
     ] }).catch(() => {})
     const r = S.reminder
     const cutOn = !!(S.cut?.remind?.weigh || S.cut?.remind?.log)
+    // The app's own safety — the signature running out, a week without a copy off the phone —
+    // is reminded whatever else is on, once notifications are allowed; it never asks for them.
+    const safety = await safetyNotifications(S)
     // the cut's reminders stand on their own: they need no workout reminder switched on
-    if (!r?.on && !cutOn) return true
+    if (!r?.on && !cutOn && !safety.length) return true
     let perm = await LocalNotifications.checkPermissions()
-    if (perm.display !== 'granted' && interactive) perm = await LocalNotifications.requestPermissions()
+    if (perm.display !== 'granted' && interactive && (r?.on || cutOn)) perm = await LocalNotifications.requestPermissions()
     if (perm.display !== 'granted') return false
-    const notifications = [...(r?.on ? [...buildReminderNotifications(S), ...buildNudgeNotifications(S)] : []), ...buildCutNotifications(S)]
+    const notifications = [...(r?.on ? [...buildReminderNotifications(S), ...buildNudgeNotifications(S)] : []), ...buildCutNotifications(S), ...safety]
     if (notifications.length) await LocalNotifications.schedule({ notifications })
     return true
   } catch (e) { return false }
@@ -366,12 +386,13 @@ async function pruneAutoBackups({ Filesystem, Directory }, written) {
   }
 }
 /* ------------------------------------------------- the backup folder (#161) --
-   Android only: the system folder picker (Storage Access Framework) through the local
-   BackupFolder plugin (android/.../BackupFolderPlugin.java), since @capacitor/filesystem cannot
-   write into a picked folder. The choice is a fact of this phone, kept in its own private file
+   The system folder picker through the local BackupFolder plugin — Android's Storage Access
+   Framework (android/.../BackupFolderPlugin.java), the iPhone's document picker with a bookmark
+   (ios/App/App/SafetyPlugins.swift), where iCloud Drive is the folder that takes the copies off
+   the phone — since @capacitor/filesystem cannot write into a picked folder. The choice is a fact of this phone, kept in its own private file
    and never in S: S syncs and exports, and a content:// address means nothing anywhere else.
 
-   { uri, label }       the chosen folder, and its name as the picker showed it
+   { uri, label, at }   the chosen folder, its name as the picker showed it, the last copy's time
    { lost, lostLabel }  the folder stopped accepting copies; they go to Documents/openGym again
    {}                   the default, Documents/openGym */
 export const BACKUP_FOLDER_FILE = 'opengym-backup-folder.json'
@@ -448,6 +469,9 @@ async function writeToChosenFolder(state, day) {
     await releaseFolder(folder.uri)
     return false
   }
+  // When a copy last got there: a folder outside the app (iCloud Drive) is a copy off the phone,
+  // and the export reminders count it (lib/safety.js exportDue).
+  await setFolderState({ ...folder, at: Date.now() })
   // Pruning waits for a successful write, and only ever touches the app's own dated names.
   try { await folderPlugin.prune({ uri: folder.uri, keep: AUTO_BACKUP_KEEP, pattern: AUTO_BACKUP_NAME.source, written: name }) } catch (e) { /* housekeeping */ }
   return true

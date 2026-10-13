@@ -2527,3 +2527,11 @@ body #toast{box-shadow:var(--glass-shade),inset 0 1px 0 var(--glass-hi),inset 0 
   #tabbar,:root[data-theme="light"] #tabbar{background:var(--bg-el)}
   .sheet,:root[data-theme="light"] .sheet,.center,:root[data-theme="light"] .center{background:var(--bg-el)}
 }
+
+/* ======================================================= safety: signature and backups === */
+/* components/SafetyCard.jsx: on Home when the phone app's signature runs out within three days,
+   or when no copy of the data has left the phone for a week. */
+.safety-card{padding:14px 16px}
+.safety-card.warn{border:1px solid color-mix(in srgb,var(--orange) 45%,transparent)}
+.safety-t{font-weight:600;font-size:16px;line-height:1.3;letter-spacing:-.012em}
+.safety-s{margin-top:3px;line-height:1.45}

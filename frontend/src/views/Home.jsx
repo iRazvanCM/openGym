@@ -16,6 +16,7 @@ import { tappable } from '../lib/use-sheet-keyboard.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { dayNoteOf } from '../lib/day-notes.js'
 import { DailyLogCard } from '../components/DailyLog.jsx'
+import SafetyCard from '../components/SafetyCard.jsx'
 import { APP_NAME } from '../lib/brand.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
@@ -107,6 +108,9 @@ export default function Home() {
       <div><h1>{user ? t('Hi {0}', user.name) : APP_NAME}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label={trouble ? t('Settings') + ', ' + t('Connection problem') : t('Settings')}><Icon name="gear" />{trouble && <span className="tab-dot" aria-hidden="true" />}</button>
     </div>
+
+    {/* The phone app's signature running out, a copy off the phone that is due (lib/safety.js). */}
+    <SafetyCard />
 
     <div className="card">
       {/* A coach week runs by order, not by weekday, so its progress row stands in for the

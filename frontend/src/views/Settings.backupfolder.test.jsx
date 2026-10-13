@@ -97,11 +97,12 @@ describe('the backup folder rows', () => {
     await mount()
     expect(shown()).toBe(false)
   })
-  it('not on iOS', async () => {
+  // The iPhone has the folder picker too: iCloud Drive is where the copies leave the phone.
+  it('and on iOS', async () => {
     mocks.S.autoBackup = true
     mocks.android = false
     await mount()
-    expect(shown()).toBe(false)
+    expect(shown()).toBe(true)
   })
 })
 
