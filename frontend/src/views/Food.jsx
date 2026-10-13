@@ -157,12 +157,15 @@ export default function Food() {
         <span className="dl-lbl">{left >= 0 ? t('Calories remaining') : t('Calories over')}</span>
         {brk && <span className="cut-tag info">{t('Maintenance')}</span>}
       </div>
+      {/* what is left is the number the day is eaten by: big, the sum that makes it under it */}
+      <div className={'food-hero' + (left < 0 ? ' over' : '')} aria-live="polite">
+        <b>{fmtKcal(Math.abs(left))}</b>
+        <span>{left >= 0 ? (isToday ? t('kcal left today') : t('kcal left')) : (isToday ? t('kcal over today') : t('kcal over'))}</span>
+      </div>
       <div className="food-eq">
         <div><b>{fmtKcal(goal.kcal)}</b><span>{t('Goal')}</span></div>
         <i>−</i>
         <div><b>{fmtKcal(tot.kcal)}</b><span>{t('Food')}</span></div>
-        <i>=</i>
-        <div className={'food-left' + (left < 0 ? ' over' : '')}><b>{fmtKcal(Math.abs(left))}</b><span>{left >= 0 ? t('Left') : t('Over')}</span></div>
       </div>
       <Bar value={tot.kcal} goal={goal.kcal} tone={left < -100 ? 'over' : left <= 300 ? 'good' : ''} />
       <div className="food-macs">

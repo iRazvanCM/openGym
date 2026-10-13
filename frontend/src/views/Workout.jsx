@@ -1415,6 +1415,15 @@ function ActiveWorkout() {
     // The confirm names what it changes: this workout, never the routine behind it.
     else exConfigSheet(ex, null, commit, null, routine, seed, null, t('Add to this workout'))
   })
+  // Home's "Add exercise" starts an empty session and opens the picker on it straight away. A
+  // one-shot ask, good for two minutes: a weigh-in sheet closed without starting must not open the
+  // picker on some later session.
+  useEffect(() => {
+    const at = useUI.getState().pickOnStart
+    if (!at) return
+    useUI.setState({ pickOnStart: 0 })
+    if (Date.now() - at < 120000 && !A.entries.length && !editing) addExercise()
+  }, [])
   // Ending the session without saving it. The ⋯ menu's last item since the header's ✕ became the
   // ⌄ that only leaves the screen (v1.3.11).
   const discardWorkout = () => confirmSheet({

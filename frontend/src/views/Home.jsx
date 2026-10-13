@@ -18,10 +18,15 @@ import { dayNoteOf } from '../lib/day-notes.js'
 import { CheckInCard, DailyLogCard } from '../components/DailyLog.jsx'
 import SafetyCard from '../components/SafetyCard.jsx'
 import PrecutCard from '../components/PrecutCard.jsx'
+import TodayCard from '../components/TodayCard.jsx'
 import { MOBILE } from '../lib/mobile.js'
 import { APP_NAME } from '../lib/brand.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
+//
+// Top to bottom: today's calories and the three everyday taps (components/TodayCard.jsx), the
+// weekly check-in when it is due, the week's training, the day's log, the checks before a cut
+// (folded), body weight, the streak. The rest is a tab away.
 export default function Home() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
@@ -115,6 +120,9 @@ export default function Home() {
         the weekly export, only while one of them is due (components/SafetyCard.jsx). */}
     {MOBILE && <SafetyCard />}
 
+    <TodayCard />
+    <CheckInCard />
+
     <div className="card">
       {/* A coach week runs by order, not by weekday, so its progress row stands in for the
           seven dots (components/QueueRow.jsx). The today row below stays as it is: the queue's
@@ -167,31 +175,6 @@ export default function Home() {
       </div>}
     </div>
 
-    {/* The day's log — calories, protein, steps, cardio, sleep, alcohol — and where the cut
-        stands, one tap from Progress (components/DailyLog.jsx). */}
-    <CheckInCard />
-    <DailyLogCard />
-
-    {/* The checks before the cut and its first two weeks (lib/precut.js), until all are done. */}
-    <PrecutCard />
-
-    {/* Jump to the gym check-in cards (QR membership codes). Shown here as a quick tap on
-        arrival at the gym; folds away per user via the "Gym check-in" switch in Settings. */}
-    {S.checkIn !== false && (
-      <div className="card tappable" style={{ cursor: 'pointer' }} {...tappable(() => nav('/checkin'))}>
-        <div className="row between">
-          <div className="row" style={{ gap: 9 }}>
-            <span className="lrow-i" style={{ background: 'var(--blue)' }}><Icon name="qr" /></span>
-            <div>
-              <div className="lbl2">{t('At the gym')}</div>
-              <div className="ttl">{t('Check in')}</div>
-            </div>
-          </div>
-          <Icon name="chevronRight" className="chev" />
-        </div>
-      </div>
-    )}
-
     {!S.routines.length && !S.active && (
       <div className="card">
         <div className="row" style={{ gap: 10, marginBottom: 6 }}>
@@ -203,6 +186,13 @@ export default function Home() {
         <div style={{ height: 8 }} /><Button onClick={() => nav('/plan')}>{t('Build my own plan')}</Button>
       </div>
     )}
+
+    {/* The day's log — calories, protein, steps, cardio, sleep, alcohol — and where the plan
+        stands, one tap from Progress (components/DailyLog.jsx). */}
+    <DailyLogCard />
+
+    {/* The checks before the cut and its first two weeks (lib/precut.js), folded to one line. */}
+    <PrecutCard compact />
 
     {S.showWeightCard !== false && <div className="card">
       <div className="row between bw-head" style={{ marginBottom: 6 }}>
@@ -230,7 +220,8 @@ export default function Home() {
             <span>{t('Goal')} {fmtNum(S.targetW)} {S.unit} · {Math.abs(S.targetW - bw.w) < 0.05 ? t('reached!') : t(S.targetW > bw.w ? '{0} to gain' : '{0} to lose', fmtNum(Math.abs(S.targetW - bw.w)) + ' ' + S.unit)}</span>
           </div>
         )}
-        <div className="chart" style={{ marginTop: 8 }}><LineChart points={bwPoints} h={130} unit={S.unit} goal={S.targetW} /></div>
+        {/* one weigh-in is a dot, not a curve: the chart waits for the second */}
+        {bwPoints.length > 1 && <div className="chart" style={{ marginTop: 8 }}><LineChart points={bwPoints} h={130} unit={S.unit} goal={S.targetW} /></div>}
         {/* every weigh-in, week by week with its average (Discord 'Weight') */}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 4 }}>
           <Button size="sm" variant="ghost" trailingIcon="chevronRight" onClick={weighInsSheet}>{t('All weigh-ins')}</Button>
@@ -252,5 +243,22 @@ export default function Home() {
         <Icon name="calendar" className="chev" style={{ fontSize: 20 }} />
       </div>
     </div>
+
+    {/* Jump to the gym check-in cards (QR membership codes): a quick tap on arrival at the gym;
+        folds away per user via the "Gym check-in" switch in Settings. */}
+    {S.checkIn !== false && (
+      <div className="card tappable" style={{ cursor: 'pointer' }} {...tappable(() => nav('/checkin'))}>
+        <div className="row between">
+          <div className="row" style={{ gap: 9 }}>
+            <span className="lrow-i" style={{ background: 'var(--blue)' }}><Icon name="qr" /></span>
+            <div>
+              <div className="lbl2">{t('At the gym')}</div>
+              <div className="ttl">{t('Check in')}</div>
+            </div>
+          </div>
+          <Icon name="chevronRight" className="chev" />
+        </div>
+      </div>
+    )}
   </div>
 }

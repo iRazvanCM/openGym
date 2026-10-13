@@ -58,7 +58,8 @@ async function sendTestReminder() {
 
 /* ================================================================ the card == */
 
-export default function PrecutCard() {
+/** `compact` (Home): the header and its bar only, the list one tap away. */
+export default function PrecutCard({ compact = false }) {
   const nav = useNavigate()
   const S = useStore(s => s.S)
   const today = todayISO()
@@ -68,6 +69,7 @@ export default function PrecutCard() {
   const items = useMemo(() => precutItems(S, { today, mobile: MOBILE, ios: health.ios, health: health.file, hasMedia, folder }),
     [S, today, health, hasMedia, folder])
   const [open, setOpen] = useState(false)
+  const [peek, setPeek] = useState(!compact)
   if (!precutShown(S, items, today)) return null
   const done = items.filter(i => i.done).length
   const cut = cutOf(S)
@@ -104,7 +106,7 @@ export default function PrecutCard() {
     waist: i => row(i, t('Waist measured'), t('At the navel, relaxed, every week at the same spot.'), act(t('Log'), () => nav('/measurements'))),
   }
   const todo = items.filter(i => !i.done)
-  const shown = open ? items : todo.slice(0, 3)
+  const shown = !peek ? [] : open ? items : todo.slice(0, 3)
 
   return <div className="card precut">
     <div className="row between" style={{ gap: 10, marginBottom: 6 }}>
@@ -119,7 +121,8 @@ export default function PrecutCard() {
     </div>
     <div className="precut-bar"><span style={{ width: Math.round(done / items.length * 100) + '%' }} /></div>
     {shown.map(i => views[i.id]?.(i))}
-    {items.length > shown.length || open ? <button className="precut-more" onClick={() => setOpen(o => !o)}>
+    {!peek ? <button className="precut-more" onClick={() => setPeek(true)}>{plural(todo.length, '{0} thing left to do', '{0} things left to do')}<Icon name="chevronDown" /></button>
+      : items.length > shown.length || open ? <button className="precut-more" onClick={() => setOpen(o => !o)}>
       {open ? t('Show less') : t('Show all {0}', items.length)}<Icon name={open ? 'chevronUp' : 'chevronDown'} />
     </button> : null}
   </div>
