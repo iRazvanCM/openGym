@@ -57,4 +57,25 @@ describe('Progress', () => {
     expect(host.querySelectorAll('.cut-day').length).toBe(14)
     expect(host.querySelector('.cut-bar')).toBeTruthy()
   })
+
+  it('in a diet break: the plan stands still, the trend is measured against the day before it', () => {
+    const c = cut(45)
+    const from = addDays(todayISO(), -4)
+    useStore.setState(s => ({ S: { ...s.S, unit: 'kg', targetW: 85, measurements: [], cut: { start: c.start, breaks: [{ from, to: addDays(todayISO(), 5) }] }, bodyweight: c.bodyweight, dailyLog: c.dailyLog, workouts: c.workouts } }))
+    act(() => root.render(<Progress />))
+    const text = host.textContent
+    expect(text).toContain('Diet break')
+    expect(text).toContain('Aim over the break: the trend at most +0.5 kg')
+    expect(host.querySelector('.cut-break')).toBeTruthy()
+    expect(text).toContain('trend since')
+  })
+
+  it('in the week back: the water week, with no pace advice', () => {
+    const c = cut(45)
+    useStore.setState(s => ({ S: { ...s.S, unit: 'kg', targetW: 85, measurements: [], cut: { start: c.start, breaks: [{ from: addDays(todayISO(), -12), to: addDays(todayISO(), -3) }] }, bodyweight: c.bodyweight, dailyLog: c.dailyLog, workouts: c.workouts } }))
+    act(() => root.render(<Progress />))
+    expect(host.textContent).toContain('Water week')
+    expect(host.textContent).toContain('The break, all told')
+    expect(host.textContent).toMatch(/held from .* over the break/)
+  })
 })

@@ -107,6 +107,49 @@ export const carbsFor = (kcal, protein, fat) => Math.max(0, Math.round((kcal - 4
 export const activeBreak = (cut, iso) => cut.breaks.find(b => b.from <= iso && iso <= b.to) || null
 export const nextBreak = (cut, iso) => cut.breaks.find(b => b.from > iso) || null
 
+/* ------------------------------------------------------------------- diet breaks -- */
+// A break is days at maintenance, part of the plan rather than time off it, and every number
+// treats it so (MATADOR: two weeks at maintenance cost no lean mass and lost more fat per week of
+// dieting). The plan's line stands still through it, so the first day back does not open a kilo
+// and a half "behind plan"; maintenance is worked out without it, nor the week after it while the
+// water from the extra carbs comes off (that week's fast drop is water, not a pace to slow down);
+// and the dates ahead move by the break days still to come.
+
+/** The days after a break that its water takes to come off: out of the estimates, no pace advice. */
+export const WATER_DAYS = 7
+/** How far the trend may rise over a break: the holiday studies' target (BMJ 2018: at most +0.5 kg). */
+export const BREAK_RISE_KG = 0.5
+
+/** The break whose water week `iso` falls in — the seven days after it — or null. */
+export const waterWeekOf = (cut, iso) => cut.breaks.find(b => iso > b.to && iso <= addDays(b.to, WATER_DAYS)) || null
+
+/** Whether a day stays out of the maintenance estimate: a break day, or one of its water week. */
+export const outOfEstimate = (cut, iso) => cut.breaks.some(b => iso >= b.from && iso <= addDays(b.to, WATER_DAYS))
+
+/** The days of dieting from `a` to `b` (b − a), the break days among them left out. */
+export function dietDays(cut, a, b) {
+  if (!(b > a)) return 0
+  let n = daysBetween(a, b)
+  const lastDay = addDays(b, -1)
+  for (const br of cut.breaks) {
+    const from = br.from > a ? br.from : a
+    const to = br.to < lastDay ? br.to : lastDay
+    if (from <= to) n -= daysBetween(from, to) + 1
+  }
+  return n
+}
+
+/** The day `n` days of dieting after `from`, the break days on the way not counted. */
+export function addDietDays(cut, from, n) {
+  let d = from, left = Math.max(0, Math.round(n))
+  if (!cut.breaks.some(b => b.to > from)) return addDays(from, left)
+  for (let guard = 0; left > 0 && guard < 20000; guard++) {
+    d = addDays(d, 1)
+    if (!activeBreak(cut, d)) left--
+  }
+  return d
+}
+
 /* --------------------------------------------------------------- daily log entries -- */
 
 // [lowest (exclusive), highest, decimals] for the numbers a day can carry. Zero is "not logged":
@@ -141,6 +184,7 @@ export function normalizeLogEntry(raw) {
   const food = normalizeFoodList(raw.food)
   if (food.length) e.food = food
   if (raw.done === true && food.length) e.done = true
+  if (raw.partial === true) e.partial = true
   const hk = Array.isArray(raw.hk) ? HK_FIELDS.filter(k => raw.hk.includes(k) && e[k] != null) : []
   if (hk.length) e.hk = hk
   return e
@@ -170,6 +214,8 @@ export function normalizeDailyLogState(state) {
       m.food = [...(a.food || []).filter(it => !ids.has(it.id)), ...(b.food || [])]
     }
     if (a.done || b.done) m.done = true
+    // a day either half marked as logged only in part stays so
+    if (a.partial || b.partial) m.partial = true; else delete m.partial
     // a field Apple Health filled in stays marked so only where the value kept came from there
     const hk = HK_FIELDS.filter(k => ((b[k] != null ? b.hk : a.hk) || []).includes(k))
     if (hk.length) m.hk = hk; else delete m.hk
@@ -270,11 +316,17 @@ const NUT_KEYS = { kcal: 'kcal', protein: 'protein', carbs: 'carbs', fat: 'fat' 
 export function countedNutrition(e, today = todayISO()) {
   const n = entryNutrition(e)
   if (n.src === 'food' && e.d >= today && !e.done) return { kcal: null, protein: null, carbs: null, fat: null, src: null }
+  // a day marked as logged only in part (the weekly check-in asks) would pull the averages and
+  // the maintenance estimate down by whatever went unlogged
+  if (e?.partial) return { kcal: null, protein: null, carbs: null, fat: null, src: null }
   return n
 }
 
-/** What a stretch of days added up to, against the plan's targets. Both ends included. */
-export function summarize(S, from, to, cut = cutOf(S), today = todayISO()) {
+/**
+ * What a stretch of days added up to, against the plan's targets. Both ends included. A break
+ * day's calorie target is maintenance (`brkKcal`, the plan's guess unless worked out).
+ */
+export function summarize(S, from, to, cut = cutOf(S), today = todayISO(), brkKcal = cut.maintenance) {
   const days = daysBetween(from, to) + 1
   const logs = (Array.isArray(S?.dailyLog) ? S.dailyLog : []).filter(e => e && inRange(e.d, from, to))
   const nut = new Map(logs.map(e => [e, countedNutrition(e, today)]))
@@ -295,7 +347,7 @@ export function summarize(S, from, to, cut = cutOf(S), today = todayISO()) {
   return {
     from, to, days,
     logged: logs.length,
-    kcal: { ...kcal, hit: logs.filter(e => kcalOf(e) != null && kcalOf(e) <= cut.kcal + 100 && kcalOf(e) >= cut.kcal - 300).length },
+    kcal: { ...kcal, hit: logs.filter(e => { const k = kcalOf(e), goal = activeBreak(cut, e.d) ? brkKcal : cut.kcal; return k != null && k <= goal + 100 && k >= goal - 300 }).length },
     protein: { ...protein, hit: logs.filter(e => proteinOf(e) != null && proteinOf(e) >= cut.protein * 0.9).length },
     carbs, fat,
     foodDays: logs.filter(e => nut.get(e).src === 'food').length,
@@ -312,14 +364,14 @@ export function summarize(S, from, to, cut = cutOf(S), today = todayISO()) {
 }
 
 /** Week by week from `from` to `to` (the profile's weeks), newest first, each with its summary. */
-export function weeklyRows(S, from, to, ws = 1, cut = cutOf(S), today = todayISO()) {
+export function weeklyRows(S, from, to, ws = 1, cut = cutOf(S), today = todayISO(), brkKcal = cut.maintenance) {
   if (!isIso(from) || !isIso(to) || from > to) return []
   const rows = []
   for (let key = weekKey(from, ws); key <= to; key = addDays(key, 7)) {
     const a = key < from ? from : key
     const end = addDays(key, 6)
     const b = end > to ? to : end
-    rows.push({ key, ...summarize(S, a, b, cut, today) })
+    rows.push({ key, ...summarize(S, a, b, cut, today, brkKcal) })
   }
   rows.forEach((r, i) => { r.change = i && r.avgW != null && rows[i - 1].avgW != null ? r.avgW - rows[i - 1].avgW : null })
   return rows.reverse()
@@ -355,6 +407,19 @@ export function weighInSlope(bodyweight, from, to, minPoints = 8) {
 }
 
 /**
+ * The slope, unit per day of dieting, of a straight line through the weigh-ins on `used` days,
+ * each placed at its position among `days` (the days of dieting, in order).
+ */
+function slopeOver(bodyweight, days, used, minPoints = 8) {
+  const at = new Map(days.map((d, i) => [d, i]))
+  const pts = weighIns(bodyweight).filter(b => used.has(b.d) && at.has(b.d))
+  if (pts.length < minPoints) return null
+  const xs = pts.map(p => at.get(p.d)), mx = mean(xs), my = mean(pts.map(p => p.w))
+  const sxx = xs.reduce((s, x) => s + (x - mx) ** 2, 0)
+  return sxx ? xs.reduce((s, x, i) => s + (x - mx) * (pts[i].w - my), 0) / sxx : null
+}
+
+/**
  * Maintenance from energy balance over up to the last four weeks: the average logged intake plus
  * what came off the body (or went on) meanwhile. Needs two weeks of weigh-ins and ten days with
  * calories; the cut's first week stays out of the window, its loss being mostly water and glycogen.
@@ -363,20 +428,32 @@ export function weighInSlope(bodyweight, from, to, minPoints = 8) {
  * trend's level at its two ends: the trend is still settling after the first week's water drop,
  * and on simulated cuts its ends put maintenance ~350 kcal too high four weeks in where the line
  * was within ~40 (and within a few kcal by week six), for about the same day-to-day noise.
+ *
+ * Diet breaks: the window is four weeks of the cut's own days, the break days taken out of the
+ * time line — at maintenance, the body neither lost nor gained what the line is about — and the
+ * week after each break left without data, its water coming off on top of the loss. Through a break
+ * and that week, the estimate stays what it was the day before the break began (`held`, `asOf`).
+ * A day logged as half eaten (`partial`) counts for its weigh-in but not for the intake.
  */
 export function expenditure(S, today = todayISO(), cut = cutOf(S), trend = weightTrend(S?.bodyweight)) {
   const end = trendOn(trend, today)
   if (!end || !trend.length) return { ready: false, logged: 0, span: 0 }
-  let begin = addDays(end.d, -27)
-  if (cut.start && addDays(cut.start, 7) > begin) begin = addDays(cut.start, 7)
-  if (begin < trend[0].d) begin = trend[0].d
-  const span = daysBetween(begin, end.d)
-  const kcal = (S?.dailyLog || []).filter(e => e && inRange(e.d, begin, end.d)).map(e => countedNutrition(e, today).kcal).filter(v => v != null)
-  const perDay = span >= 13 ? weighInSlope(S?.bodyweight, begin, end.d) : null
-  if (perDay == null || kcal.length < 10) return { ready: false, logged: kcal.length, span: Math.max(0, span) }
+  let lower = trend[0].d
+  if (cut.start && addDays(cut.start, 7) > lower) lower = addDays(cut.start, 7)
+  const around = cut.breaks.find(b => end.d >= b.from && end.d <= addDays(b.to, WATER_DAYS))
+  const asOf = around ? addDays(around.from, -1) : end.d
+  const days = []
+  for (let d = asOf; d >= lower && days.length < 28; d = addDays(d, -1)) if (!activeBreak(cut, d)) days.push(d)
+  days.reverse()
+  const used = new Set(days.filter(d => !waterWeekOf(cut, d)))
+  const span = Math.max(0, days.length - 1)
+  const kcal = (S?.dailyLog || []).filter(e => e && used.has(e.d)).map(e => countedNutrition(e, today).kcal).filter(v => v != null)
+  const perDay = span >= 13 ? slopeOver(S?.bodyweight, days, used) : null
+  const held = !!around
+  if (perDay == null || kcal.length < 10) return { ready: false, logged: kcal.length, span, held, asOf }
   const intake = mean(kcal)
   const tdee = intake - perDay * (KCAL_PER_KG / unitPerKg(S))   // perDay is negative while losing
-  return { ready: true, tdee: round(tdee / 10) * 10, intake: round(intake), span, logged: kcal.length, from: begin, to: end.d }
+  return { ready: true, tdee: round(tdee / 10) * 10, intake: round(intake), span, logged: kcal.length, from: days[0], to: asOf, held, asOf }
 }
 
 /** Daily calories that lose `rate` (unit a week) at maintenance `tdee`, never under the floor. */
@@ -449,17 +526,38 @@ export function cutReport(S, today = todayISO()) {
 
   const rateMin = cut.rateMin * per, rateMax = cut.rateMax * per, rateMid = (rateMin + rateMax) / 2
   const slack = 0.1 * per
+  // The dates ahead skip the break days still to come; the plan's line stands still through a break.
   const weeksLeft = toGo != null && toGo > 0 && lossWk > 0.05 * per ? toGo / lossWk : null
-  const eta = weeksLeft != null && cur ? addDays(cur.d, Math.round(weeksLeft * 7)) : null
-  const planEta = toGo != null && toGo > 0 ? addDays(today, Math.round(toGo / rateMid * 7)) : null
-  const planW = started && startW != null ? Math.max(goalW ?? -Infinity, startW - rateMid * (dayN - 1) / 7) : null
-  const vsPlan = planW != null && trendW != null ? trendW - planW : null
+  const eta = weeksLeft != null && cur ? addDietDays(cut, cur.d, weeksLeft * 7) : null
+  const planEta = toGo != null && toGo > 0 ? addDietDays(cut, today, toGo / rateMid * 7) : null
+  const planAt = d => (started && startW != null ? Math.max(goalW ?? -Infinity, startW - rateMid * dietDays(cut, cut.start, d) / 7) : null)
+  const planW = planAt(today)
+  let vsPlan = planW != null && trendW != null ? trendW - planW : null
 
-  const week7 = summarize(S, addDays(today, -6), today, cut, today)
-  const prev7 = summarize(S, addDays(today, -13), addDays(today, -7), cut, today)
+  // A break and the week after it, as the screens tell it: the trend against the day before the
+  // break began (BREAK_RISE_KG is the target over it), and "behind plan" held at that day's value
+  // — the water of the break and of the week after it is not a pace.
+  const brkNow = activeBreak(cut, today)
+  const water = brkNow ? null : waterWeekOf(cut, today)
+  const around = brkNow || water
+  let breakResult = null, planHeld = false
+  if (around && cur) {
+    const pre = addDays(around.from, -1)
+    const before = trendOn(trend, pre)
+    if (before) {
+      const delta = cur.L - before.L
+      breakResult = { from: around.from, to: around.to, pre, before: before.L, now: cur.L, delta, target: BREAK_RISE_KG * per, over: delta > BREAK_RISE_KG * per, back: !!water, until: water ? addDays(around.to, WATER_DAYS) : null }
+      const planPre = planAt(pre)
+      if (planPre != null && started && pre >= cut.start) { vsPlan = before.L - planPre; planHeld = true }
+    }
+  }
+
   const tdee = expenditure(S, today, cut, trend)
+  const maintenance = tdee.ready ? tdee.tdee : cut.maintenance
+  const week7 = summarize(S, addDays(today, -6), today, cut, today, maintenance)
+  const prev7 = summarize(S, addDays(today, -13), addDays(today, -7), cut, today, maintenance)
   const strength = strengthCheck(S, today, cut)
-  const brk = activeBreak(cut, today)
+  const brk = brkNow
 
   // Where the cut stands this week.
   const recentWeighIns = weighIns(S?.bodyweight).filter(b => inRange(b.d, addDays(today, -13), today)).length
@@ -481,6 +579,7 @@ export function cutReport(S, today = todayISO()) {
   if (!trend.length) phase = 'noweight'
   else if (recentWeighIns < 3 || daysBetween(last.d, today) > 7) phase = 'stale'
   else if (brk) phase = 'break'
+  else if (water) phase = 'water'
   else if (started && dayN <= 7) phase = 'early'
   else if (lossWk < -slack) phase = 'gain'
   else if (slow2 && lossWk < rateMax) phase = 'stall'
@@ -501,9 +600,9 @@ export function cutReport(S, today = todayISO()) {
 
   const advice = []
   if (settling && (phase === 'stall' || phase === 'slow' || phase === 'fast' || phase === 'gain')) advice.push({ code: 'settling', since: cut.changedAt, until: addDays(cut.changedAt, 14) })
-  const maintenance = tdee.ready ? tdee.tdee : cut.maintenance
   const upcoming = nextBreak(cut, today)
   if (brk) advice.push({ code: 'break', kcal: maintenance, to: brk.to })
+  else if (water) advice.push({ code: 'water', until: addDays(water.to, WATER_DAYS), kcal: cut.kcal })
   else if (upcoming && daysBetween(today, upcoming.from) <= 7) advice.push({ code: 'break-soon', from: upcoming.from, kcal: maintenance })
   const anyLog = (S?.dailyLog || []).some(logHasValues)
   if (anyLog && week7.kcal.n < 5) advice.push({ code: 'log-kcal', n: week7.kcal.n })
@@ -525,8 +624,8 @@ export function cutReport(S, today = todayISO()) {
   return {
     cut, unit: S?.unit === 'lb' ? 'lb' : 'kg', per, today,
     trend, cur, trendW, lossWk, ratePct, rateMin, rateMax, rateMid,
-    started, dayN, week, startW, goalW, lost, toGo, pctDone, eta, planEta, planW, vsPlan, weekDrops,
-    week7, prev7, tdee, maintenance, strength, phase, action, settling, advice, breakNow: brk,
+    started, dayN, week, startW, goalW, lost, toGo, pctDone, eta, planEta, planW, vsPlan, planHeld, weekDrops,
+    week7, prev7, tdee, maintenance, strength, phase, action, settling, advice, breakNow: brk, water, breakResult,
     streaks: streaks(S, today),
   }
 }

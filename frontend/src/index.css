@@ -2336,6 +2336,13 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .setup-foot{margin:16px 0 8px}
 
 
+.cut-break{display:flex;gap:12px;align-items:center;margin:0 0 12px;padding:10px 12px;border-radius:var(--r);background:color-mix(in srgb,var(--tone) 12%,transparent)}
+.cut-break.good{--tone:var(--green)} .cut-break.warn{--tone:var(--orange)} .cut-break.bad{--tone:var(--red)}
+.cut-break-n{display:flex;flex-direction:column;align-items:center;flex:none;min-width:74px}
+.cut-break-n b{font-size:20px;font-weight:700;color:var(--tone);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.cut-break-n span{font-size:11px;color:var(--label-2);text-align:center;line-height:1.2}
+.cut-break-t{font-size:13px;line-height:1.4;color:var(--label)}
+
 /* ------------------------------------------------------- data safety (backups, renewal) -- */
 .safety-card{padding:6px 14px}
 .safety-row{display:flex;align-items:center;gap:12px;padding:10px 0;cursor:pointer}

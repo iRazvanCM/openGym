@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
-  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, isIso, logFor,
+  CUT_DEFAULTS, LB_PER_KG, addDays, carbsFor, cutOf, cutReport, dailyLogCSV, daysBetween, dietDays, isIso, logFor,
   weeklyRows,
 } from '../lib/cut.js'
 import { latestMeasurement, toMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
@@ -154,7 +154,7 @@ function HowItWorks({ r, close }) {
     {p(t('Maintenance'), t('What you eat against how your weigh-ins move: about 7,700 kcal per kg lost. Ready after about three weeks of logging calories; the first week is left out because it is mostly water.'))}
     {p(t('Stalls'), t('The weekly average dropping less than the plan\'s lowest pace two weeks in a row: 100 kcal less a day, never under your floor — at the floor, 2,000 more steps instead. One slow week is noise. After any change it waits two weeks before suggesting another.'))}
     {p(t('Strength check'), t('The estimated one-rep max of your main lifts in the last two weeks against your start. Strength holding is the best everyday sign that muscle is.'))}
-    {p(t('Diet breaks'), t('Days at maintenance. The scale goes up a kilo or two of water and comes back off in the first week back. Breaks in a long diet did not cost muscle and helped fat loss in studies (MATADOR).'))}
+    {p(t('Diet breaks'), t('Days at maintenance, part of the plan: its line stands still through them, the dates ahead move by them, and the maintenance estimate keeps its value from before the break, leaving out the break and the week after it. The scale goes up with the water of the extra carbs and comes back off in that week, which is why it gives no pace advice. The aim over the break is the trend at most 0.5 kg up (the holiday weighing studies). Breaks in a long diet did not cost muscle and helped fat loss in studies (MATADOR).'))}
     <div className="muted small" style={{ lineHeight: 1.5, margin: '6px 2px 14px' }}>
       {t('Sources: Helms et al. 2014, JISSN (rate, protein); Garthe et al. 2011, IJSNEM (slower loss kept more lean mass); Byrne et al. 2018, Int J Obes (MATADOR diet breaks); Steinberg et al. 2013, Obesity (daily weighing); MacroFactor expenditure method (energy balance).')}
     </div>
@@ -163,6 +163,26 @@ function HowItWorks({ r, close }) {
 }
 
 /* ===================================================================== screen == */
+
+/**
+ * The trend over a break, against the day before it began: during the break, with its target (the
+ * holiday studies' +0.5 kg; a little more is the water of the extra carbs, more than a kilo is
+ * food); in the week back, the real change the break made, the water still in it said as such.
+ */
+function BreakResult({ b, unit, per }) {
+  const d = b.delta
+  const tone = d <= b.target ? 'good' : d <= 2 * b.target ? 'warn' : 'bad'
+  const sign = (d > 0.05 ? '+' : d < -0.05 ? '−' : '±') + fmt1(Math.abs(d)) + ' ' + unit
+  return <div className={'cut-break ' + tone}>
+    <div className="cut-break-n"><b>{sign}</b><span>{t('trend since {0}', fmtDate(b.pre, true))}</span></div>
+    <div className="cut-break-t">{b.back
+      ? (d <= b.target ? t('The break, all told: within the +{0} target. What is left of it is water and comes off this week.', fmt1(b.target) + ' ' + unit)
+        : t('The break, all told, with this week\'s water still in it. Compare again on {0}: what is left then is real.', fmtDate(b.until, true)))
+      : (d <= b.target ? t('Within the target of at most +{0}. Keep the portions at maintenance.', fmt1(b.target) + ' ' + unit)
+        : d <= 2 * b.target ? t('Over the +{0} target. Part of it is water from the extra carbs; keep the portions at maintenance.', fmt1(b.target) + ' ' + unit)
+          : t('Well over the +{0} target: more than water. Weigh the portions again and log every meal until the break ends.', fmt1(b.target) + ' ' + unit))}</div>
+  </div>
+}
 
 function Verdict({ r, S }) {
   const info = phaseInfo(r.phase)
@@ -175,7 +195,8 @@ function Verdict({ r, S }) {
     stall: r.settling ? t('Below the range two weeks running, but the plan has just changed. Give the change its two weeks.') : t('Below the range two weeks running. Time for a small change.'),
     fast: r.action ? t('Faster than the range and your lifts are slipping: eat a little more.') : t('Faster than the range. Fine while your lifts hold and you feel good; watch recovery.'),
     gain: t('The trend is going up. Check that every bite and drink is logged before changing the plan.'),
-    break: t('Eat at maintenance until the break ends. A kilo or two of water comes on and goes again in the first week back.'),
+    break: t('Eat at maintenance until the break ends. The plan stands still meanwhile: nothing falls behind, and the maintenance estimate keeps its value from before the break.'),
+    water: t('Back from the break, on the plan\'s calories again. The water the break put on comes off this week, so the scale drops fast: that is not the pace, and nothing is changed for it.'),
     stale: t('Weigh in most mornings (after the toilet, before eating) and the trend comes back.'),
     noweight: t('Log your weight to start the trend.'),
   }[r.phase]
@@ -194,6 +215,7 @@ function Verdict({ r, S }) {
     switch (a.code) {
       case 'settling': return t('You changed the plan on {0}. Give it until {1} to show on the scale before changing anything else.', fmtDate(a.since, true), fmtDate(a.until, true))
       case 'break': return t('Diet break until {0}: about {1} kcal a day.', fmtDate(a.to, true), fmtInt(a.kcal))
+      case 'water': return t('Water week until {0}: {1} kcal a day. The pace and the maintenance estimate pick up again after it.', fmtDate(a.until, true), fmtInt(a.kcal))
       case 'break-soon': return t('Diet break from {0}: about {1} kcal a day.', fmtDate(a.from, true), fmtInt(a.kcal))
       case 'log-kcal': return t('Calories logged on {0} of the last 7 days. Six or more keeps the numbers honest.', a.n)
       case 'weigh-more': return t('{0} weigh-ins in the last 7 days. Daily weighing makes the trend sharper.', a.n)
@@ -219,10 +241,13 @@ function Verdict({ r, S }) {
         {(r.phase === 'stall' || r.phase === 'slow') && r.weekDrops && <div className="small muted">
           {t('Weekly average: {0}, then {1}', ...r.weekDrops.map(x => (x > 0.05 ? '−' : x < -0.05 ? '+' : '') + fmt1(Math.abs(x)) + ' ' + unit))}
         </div>}
-        <div className="small dim">{t('Aim: {0}–{1} a week', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + unit)}</div>
+        {r.phase === 'break'
+          ? <div className="small dim">{t('Aim over the break: the trend at most +{0}', fmt1(r.breakResult?.target ?? 0.5 * r.per) + ' ' + unit)}</div>
+          : <div className="small dim">{t('Aim: {0}–{1} a week', fmt1(r.rateMin), fmt1(r.rateMax) + ' ' + unit)}</div>}
       </div>
     </div>
     {why && <p className="cut-vp">{why}</p>}
+    {r.breakResult && <BreakResult b={r.breakResult} unit={unit} per={r.per} />}
     {r.action && <Button size="sm" variant="tinted" icon="check" onClick={apply}>
       {r.action.kind === 'kcal' ? t('Set calories to {0} (was {1})', fmtInt(r.action.value), fmtInt(cut.kcal)) : t('Set steps to {0} (was {1})', fmtInt(r.action.value), fmtInt(cut.steps))}
     </Button>}
@@ -253,8 +278,8 @@ export default function Progress() {
   const ws = weekStartOf(S)
   const weeks = useMemo(() => {
     const from = cut.start || addDays(today, -55)
-    return weeklyRows(S, from, today, ws, cut).slice(0, 26)
-  }, [S, cut, today, ws])
+    return weeklyRows(S, from, today, ws, cut, today, r.maintenance).slice(0, 26)
+  }, [S, cut, today, ws, r.maintenance])
 
   // The chart: scale readings as dots, the trend as the line, the plan's pace dashed.
   const chart = useMemo(() => {
@@ -269,11 +294,12 @@ export default function Progress() {
     ]
     if (r.started && r.startW != null && r.goalW != null && r.startW > r.goalW) {
       const a = cut.start >= from ? cut.start : from
-      const weeksTo = (r.startW - r.goalW) / r.rateMid
-      const end = addDays(cut.start, Math.round(weeksTo * 7))
-      const b = end < today ? end : today
-      const planAt = d => Math.max(r.goalW, r.startW - r.rateMid * daysBetween(cut.start, d) / 7)
-      if (a < b) series.push({ points: [{ t: ms(a), y: planAt(a), d: a }, { t: ms(b), y: planAt(b), d: b }], color: 'var(--yellow)', width: 1.4, dash: '5 5', dots: false })
+      const b = today
+      // flat through each break: the plan stands still there (lib/cut.js dietDays)
+      const planAt = d => Math.max(r.goalW, r.startW - r.rateMid * dietDays(cut, cut.start, d) / 7)
+      const turns = cut.breaks.flatMap(x => [addDays(x.from, 1), addDays(x.to, 1)]).filter(d => d > a && d < b)
+      const pts = [...new Set([a, ...turns, b])].sort().map(d => ({ t: ms(d), y: planAt(d), d }))
+      if (a < b) series.push({ points: pts, color: 'var(--yellow)', width: 1.4, dash: '5 5', dots: false })
     }
     return { line, series }
   }, [r, range, today, cut.start])
@@ -355,7 +381,7 @@ export default function Progress() {
         {t('{0} to go', fmtNum(r.toGo) + ' ' + unit)}
         {r.eta && <> · {t('about {0} at this pace', fmtDate(r.eta, true, true))}</>}
         {!r.eta && r.planEta && <> · {t('about {0} at {1}', fmtDate(r.planEta, true, true), fmt1(r.rateMid) + ' ' + unit + t('/wk'))}</>}
-        {r.vsPlan != null && Math.abs(r.vsPlan) >= 0.3 * r.per && <> · <span style={{ color: r.vsPlan < 0 ? 'var(--green)' : 'var(--orange)' }}>{r.vsPlan < 0 ? t('{0} ahead of plan', fmtNum(-r.vsPlan) + ' ' + unit) : t('{0} behind plan', fmtNum(r.vsPlan) + ' ' + unit)}</span></>}
+        {r.vsPlan != null && Math.abs(r.vsPlan) >= 0.3 * r.per && <> · <span style={{ color: r.vsPlan < 0 ? 'var(--green)' : 'var(--orange)' }}>{r.vsPlan < 0 ? t('{0} ahead of plan', fmtNum(-r.vsPlan) + ' ' + unit) : t('{0} behind plan', fmtNum(r.vsPlan) + ' ' + unit)}</span>{r.planHeld && <span className="dim"> {t('(as before the break)')}</span>}</>}
       </div>}
       {r.toGo != null && r.toGo <= 0 && <div className="small" style={{ marginTop: 10, color: 'var(--green)', fontWeight: 600 }}>{t('Goal reached!')}</div>}
     </div>}
@@ -380,7 +406,7 @@ export default function Progress() {
       <Tile icon="moon" label={t('Sleep')} value={w7.sleep.n ? fmtNum(w7.sleep.avg) + ' ' + t('h') : '–'} tone={w7.sleep.n ? (w7.sleep.avg >= 7 ? 'good' : 'warn') : ''}
         sub={t('target {0} h', fmtNum(cut.sleep))} />
       <Tile icon="calculator" label={t('Maintenance')} value={r.tdee.ready ? fmtInt(r.tdee.tdee) : '≈ ' + fmtInt(cut.maintenance)}
-        sub={r.tdee.ready ? t('from your last {0} days', r.tdee.span + 1) : t('estimated after ~3 weeks of logging')} />
+        sub={r.tdee.ready ? (r.tdee.held ? t('held from {0} over the break', fmtDate(r.tdee.asOf, true)) : t('from your last {0} days', r.tdee.span + 1)) : t('estimated after ~3 weeks of logging')} />
       <Tile icon="shield" label={t('Alcohol-free')} value={plural(r.streaks.alcoholFree, '{0} day', '{0} days')} tone={r.streaks.alcoholFree >= 7 ? 'good' : ''}
         sub={t('in a row · {0} drinking days this week', w7.alcoholDays)} />
       {waist && <Tile icon="ruler" label={t('Waist')} value={fmtNum(toMeasurementDisplay(waist.value, S.unit)) + ' ' + measurementUnit(S.unit)} tone={waistDelta != null && waistDelta < 0 ? 'good' : ''}
@@ -447,7 +473,7 @@ export default function Progress() {
           {logFor(S, d)?.note && <span className="small dim cut-note">{logFor(S, d).note}</span>}
           <Icon name="pencil" className="dim" style={{ fontSize: 14, flex: 'none' }} />
         </div>
-        <DayChips S={S} iso={d} cut={cut} />
+        <DayChips S={S} iso={d} cut={cut} brkKcal={r.maintenance} />
       </div>)}
     </div>
 

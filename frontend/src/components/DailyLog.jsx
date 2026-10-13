@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
-  addDays, cardioMinutesOn, cutOf, cutReport, isIso, logFor, logHasValues, normalizeDailyLogState,
+  activeBreak, addDays, cardioMinutesOn, cutOf, cutReport, isIso, logFor, logHasValues, normalizeDailyLogState,
   normalizeLogEntry, workoutsOn,
 } from '../lib/cut.js'
 import { normalizeMeasurementsState, measurementEntryHasValues, emptyMeasurement, toMeasurementDisplay, fromMeasurementDisplay, measurementUnit } from '../lib/measurements.js'
@@ -39,6 +39,7 @@ export function phaseInfo(phase) {
     case 'fast': return { label: t('Losing fast'), tone: 'warn', icon: 'bolt' }
     case 'gain': return { label: t('Going up'), tone: 'bad', icon: 'arrowUp' }
     case 'break': return { label: t('Diet break'), tone: 'info', icon: 'sun' }
+    case 'water': return { label: t('Water week'), tone: 'info', icon: 'sunrise' }
     case 'stale': return { label: t('Weigh in to update'), tone: 'neutral', icon: 'scale' }
     default: return { label: t('No weigh-ins yet'), tone: 'neutral', icon: 'scale' }
   }
@@ -233,8 +234,8 @@ export function dailyLogSheet(iso) {
 
 /* ============================================================== the Home card == */
 
-/** The day's numbers as small pills, each against its target. */
-export function DayChips({ S, iso, cut = cutOf(S) }) {
+/** The day's numbers as small pills, each against its target — maintenance on a break day (`brkKcal`). */
+export function DayChips({ S, iso, cut = cutOf(S), brkKcal = null }) {
   const e = logFor(S, iso) || {}
   const nut = dayNutrition(S, iso)
   // today's diary is still being eaten: only going over shows, not being under
@@ -243,6 +244,7 @@ export function DayChips({ S, iso, cut = cutOf(S) }) {
   const trained = workoutsOn(S, iso).length > 0 || e.gym === true
   const bw = (S.bodyweight || []).find(b => b.d === iso)
   const unit = S.unit === 'lb' ? 'lb' : 'kg'
+  const goal = activeBreak(cut, iso) ? (brkKcal ?? cut.maintenance) : cut.kcal
   const chip = (key, icon, val, target, u, { hit, over } = {}) => {
     const has = val != null
     const tone = !has ? 'off' : hit ? 'hit' : over ? 'over' : ''
@@ -253,7 +255,7 @@ export function DayChips({ S, iso, cut = cutOf(S) }) {
   }
   return <div className="dl-chips">
     {bw && <span className="dl-chip hit"><Icon name="scale" /><span>{fmtNum(bw.w)} {unit}</span></span>}
-    {chip('kcal', nut.src === 'food' ? 'utensils' : 'flame', nut.kcal, cut.kcal, 'kcal', { hit: !open && nut.kcal != null && nut.kcal <= cut.kcal + 100 && nut.kcal >= cut.kcal - 300, over: nut.kcal > cut.kcal + 100 })}
+    {chip('kcal', nut.src === 'food' ? 'utensils' : 'flame', nut.kcal, goal, 'kcal', { hit: !open && nut.kcal != null && nut.kcal <= goal + 100 && nut.kcal >= goal - 300, over: nut.kcal > goal + 100 })}
     {chip('protein', 'bolt', nut.protein, cut.protein, 'g', { hit: nut.protein >= cut.protein * 0.9 })}
     {chip('steps', 'steps', e.steps, cut.steps, '', { hit: e.steps >= cut.steps })}
     {chip('cardio', 'figureRun', cardio, cut.cardio, t('min'), { hit: cardio >= cut.cardio })}
@@ -288,7 +290,7 @@ export function DailyLogCard() {
       </div>
       <Button size="sm" variant={logged ? 'plain' : 'tinted'} icon={logged ? 'pencil' : 'plus'} onClick={() => dailyLogSheet(today)}>{logged ? t('Edit') : t('Log')}</Button>
     </div>
-    <DayChips S={S} iso={today} cut={cut} />
+    <DayChips S={S} iso={today} cut={cut} brkKcal={report.maintenance} />
     {report.trend.length > 0 && <div className="dl-trend" {...tappable(() => nav('/progress'))}>
       <div className="dl-trend-m">
         <span className="muted small">{t('Trend')}</span>
