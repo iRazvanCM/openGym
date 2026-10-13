@@ -105,14 +105,14 @@ export function PlansCard({ today = todayISO() }) {
     {recent.length > 0 && <div className="small muted" style={{ marginBottom: 6 }}>
       {t('{0} off plan in two weeks, about {1} kcal', recent.length, Math.round(kcal).toLocaleString())}
     </div>}
-    {active.map(p => <div className="plan" key={p.id} role="button" tabIndex={0} onClick={() => planSheet(p)}
+    {active.map(p => <div className="ifplan" key={p.id} role="button" tabIndex={0} onClick={() => planSheet(p)}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); planSheet(p) } }}>
-      {p.trig && <Icon name={TRIGGER_ICON[p.trig]} className="plan-ic" />}
+      {p.trig && <Icon name={TRIGGER_ICON[p.trig]} className="ifplan-ic" />}
       <span><b>{t('If')}</b> {p.if}, <b>{t('then')}</b> {p.then}.</span>
     </div>)}
-    {sug && <div className="plan-sug">
+    {sug && <div className="ifplan-sug">
       <div className="small muted">{t('{0} came up {1} times in two weeks.', triggerName(sug.trig), sug.n)}</div>
-      <div className="plan-sug-t"><b>{t('If')}</b> {t(sug.if)}, <b>{t('then')}</b> {t(sug.then)}.</div>
+      <div className="ifplan-sug-t"><b>{t('If')}</b> {t(sug.if)}, <b>{t('then')}</b> {t(sug.then)}.</div>
       <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
         <Button size="sm" variant="tinted" icon="check" onClick={() => { update(s => { s.plans = savePlan(s.plans, { trig: sug.trig, if: t(sug.if), then: t(sug.then) }) }); toast(t('Plan saved')) }}>{t('Use this plan')}</Button>
         <Button size="sm" onClick={() => planSheet({ trig: sug.trig, if: t(sug.if), then: t(sug.then) })}>{t('Write my own')}</Button>

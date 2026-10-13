@@ -137,7 +137,7 @@ function CutSettings({ close }) {
       : t('In kilos this is less as the weight comes down: 0.7–1% is about 0.74–1.06 kg a week at 106 kg, 0.6–0.85 at 85.')}</div>
 
     <label className="sect-t">{t('Weekly check-in day')}</label>
-    <div className="ci-focus" role="radiogroup" aria-label={t('Weekly check-in day')} style={{ marginBottom: 16 }}>
+    <div className="wk-focus" role="radiogroup" aria-label={t('Weekly check-in day')} style={{ marginBottom: 16 }}>
       {[1, 2, 3, 4, 5, 6, 0].map(d => <button key={d} role="radio" aria-checked={v.checkInDay === d} className={'chip nocap' + (v.checkInDay === d ? ' on' : '')} onClick={() => set('checkInDay', d)}>{t(DAYS[d])}</button>)}
     </div>
     <div className="muted small" style={{ margin: '8px 2px 16px' }}>{t('The maintenance guess is used until Progress works yours out from your log — about three weeks in.')}</div>
@@ -416,8 +416,8 @@ function DensityCard({ S, today }) {
   if (!d.days) return null
   const g = n => (n == null ? '–' : fmtInt(n) + ' g')
   const k = n => (n == null ? '–' : fmt1(n))
-  const col = (title, x, tone) => <div className={'dens-col ' + tone}>
-    <b>{title}</b>
+  const col = (title, sub, x, tone) => <div className={'dens-col ' + tone}>
+    <b>{title}</b><em>{sub}</em>
     <span><i>{k(x.density)}</i> {t('kcal/g')}</span>
     <span><i>{g(x.grams)}</i> {t('of food')}</span>
     <span><i>{x.protein != null ? fmtInt(x.protein) + ' g' : '–'}</i> {t('protein')}</span>
@@ -431,8 +431,8 @@ function DensityCard({ S, today }) {
     </div>
     {d.ready ? <>
       <div className="dens">
-        {col(t('Full days (hunger 1–2)'), d.full, 'good')}
-        {col(t('Hungry days (4–5)'), d.hungry, 'warn')}
+        {col(t('Full days'), t('hunger 1–2'), d.full, 'good')}
+        {col(t('Hungry days'), t('hunger 4–5'), d.hungry, 'warn')}
       </div>
       <div className="small" style={{ marginTop: 10, lineHeight: 1.45, color: 'var(--label-2)' }}>
         {denser ? t('On hungry days the food was denser: the same calories as less food. Vegetables, fruit, soups and lean protein add weight without the calories.')
@@ -456,7 +456,7 @@ function CheckIns({ S, r, today }) {
       </div>
       <Button size="sm" variant={ci?.due ? 'tinted' : 'plain'} icon="calendar" onClick={() => nav('/weekly')}>{ci?.due ? t('Start') : t('Check in now')}</Button>
     </div>
-    {list.map(c => <div className="ci-hist" key={c.d}>
+    {list.map(c => <div className="wk-hist" key={c.d}>
       <b>{fmtDate(c.d, true)}</b>
       <span>{c.focus?.text || (c.week?.lossWk != null ? fmtRate(c.week.lossWk, unit) : '')}</span>
       <i>{c.kcalTo != null && c.kcalFrom != null && c.kcalTo !== c.kcalFrom ? `${fmtInt(c.kcalFrom)} → ${fmtInt(c.kcalTo)}` : c.stepsTo ? t('{0} steps', fmtInt(c.stepsTo)) : t('kept {0}', fmtInt(c.kcalTo ?? c.kcalFrom))}</i>
@@ -627,7 +627,7 @@ export default function Progress() {
         sub={plural(con.dry.best, 'days this week · best run {0} day', 'days this week · best run {0} days')} />
       {waist && <Tile icon="ruler" label={t('Waist')} value={fmtNum(toMeasurementDisplay(waist.value, S.unit)) + ' ' + measurementUnit(S.unit)} tone={waistDelta != null && waistDelta < 0 ? 'good' : ''}
         sub={[waistDelta != null ? t('{0} since the start', (waistDelta > 0 ? '+' : '−') + fmtNum(Math.abs(waistDelta)) + ' ' + measurementUnit(S.unit)) : fmtDate(waist.entry.d, true),
-          whtr != null ? t('{0} of your height · under 0.5 is the healthy range', whtr.toFixed(2)) : null].filter(Boolean).join(' · ')} />}
+          whtr != null ? t('waist ÷ height {0}, healthy under 0.5', whtr.toFixed(2)) : null].filter(Boolean).join(' · ')} />}
       <Tile icon="clipboard" label={t('Logged')} value={`${con.log.n} / ${con.log.of}`} tone={con.log.of > 0 && con.log.n >= con.log.of - 1 ? 'good' : ''}
         sub={t('weighed {0} / {1} · best run {2}', con.weigh.n, con.weigh.of, plural(con.log.best, '{0} day', '{0} days'))} />
     </div>

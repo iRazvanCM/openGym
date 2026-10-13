@@ -62,7 +62,7 @@ function Recipe({ food, close, onSaved, pickIngredient }) {
       <button className="food-add" onClick={add}><Icon name="plus" />{t('Add an ingredient')}</button>
     </div>
 
-    <label className="measure-field" style={{ marginTop: 12 }}>
+    <label className="measure-field" style={{ marginTop: 18 }}>
       <span>{t('Cooked pot')}{nums && <i className="dl-hint"> · {t('raw {0} g', fmt(nums.raw))}</i>}</span>
       <span className="measure-input"><NumberField nullable decimal value={cooked} onChange={setCooked} /><i>g</i></span>
     </label>

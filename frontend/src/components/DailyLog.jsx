@@ -320,11 +320,11 @@ export function CheckInCard() {
   const S = useStore(s => s.S)
   const ci = checkInFor(S, todayISO())
   if (!ci?.due) return null
-  return <div className="card ci-card" {...tappable(() => nav('/weekly'))}>
+  return <div className="card wk-card" {...tappable(() => nav('/weekly'))}>
     <span className="lrow-i" style={{ '--tint': 'var(--purple)' }}><Icon name="calendar" /></span>
     <div style={{ flex: 1, minWidth: 0 }}>
       <div className="dl-lbl">{t('Weekly check-in')}</div>
-      <div className="ci-card-t">{t('Two minutes: the week, the half-logged days, next week\'s calories')}</div>
+      <div className="wk-card-t">{t('Two minutes: the week, the half-logged days, next week\'s calories')}</div>
     </div>
     <Button size="sm" variant="tinted" onClick={e => { e.stopPropagation(); nav('/weekly') }}>{t('Start')}</Button>
   </div>

@@ -8,6 +8,7 @@
 // someone who does has every number for it. Only weighed foods count (an item with grams); drinks
 // (logged in ml) stay out, as in the studies, since a litre of water would halve a day's density.
 import { addDays, countedNutrition, logFor } from './cut.js'
+import { portion } from './food.js'
 
 const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
 const r2 = n => (n == null ? null : Math.round(n * 100) / 100)
@@ -18,7 +19,8 @@ export function dayDensity(e) {
   let kcal = 0, grams = 0
   for (const it of e.food) {
     if (!(it?.amount > 0) || it.unit === 'ml' || !it.per100) continue
-    kcal += it.kcal || 0
+    // an item as stored carries its portion; one read straight from a file is worked out from its label
+    kcal += it.kcal ?? portion(it.per100, it.amount).kcal
     grams += it.amount
   }
   return grams >= 300 ? { kcal, grams, density: kcal / grams } : null

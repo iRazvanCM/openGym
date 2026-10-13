@@ -124,7 +124,7 @@ export default function WeeklyCheckIn() {
 
     {/* 2. the days that look half logged */}
     <h4 className="sec">{t('Days logged in part?')}</h4>
-    <div className="card ci-days">
+    <div className="card wk-days">
       {suspect.length ? <>
         <div className="muted small" style={{ marginBottom: 6, lineHeight: 1.45 }}>{t('These days look logged only in part. Mark the ones that were: an incomplete day counts in neither the averages nor the maintenance estimate.')}</div>
         {suspect.map(x => <div className="lrow" key={x.d}>
@@ -138,9 +138,9 @@ export default function WeeklyCheckIn() {
 
     {/* 3. next week's calories */}
     <h4 className="sec">{t('Next week')}</h4>
-    <div className="card ci-next">
+    <div className="card wk-next">
       {prop.kind === 'kcal' && <>
-        <div className="ci-eq"><span>{fmtInt(prop.from)}</span><Icon name="chevronRight" /><b>{fmtInt(prop.kcal)}</b><i>kcal</i></div>
+        <div className="wk-eq"><span>{fmtInt(prop.from)}</span><Icon name="chevronRight" /><b>{fmtInt(prop.kcal)}</b><i>kcal</i></div>
         <div className="small muted" style={{ lineHeight: 1.45 }}>
           {prop.maintain ? t('Towards your maintenance of about {0} kcal, at most 300 a week.', fmtInt(prop.target))
             : prop.early
@@ -149,12 +149,12 @@ export default function WeeklyCheckIn() {
         </div>
       </>}
       {prop.kind === 'steps' && <>
-        <div className="ci-eq"><span>{fmtInt(cut.steps)}</span><Icon name="chevronRight" /><b>{fmtInt(prop.steps)}</b><i>{t('steps')}</i></div>
+        <div className="wk-eq"><span>{fmtInt(cut.steps)}</span><Icon name="chevronRight" /><b>{fmtInt(prop.steps)}</b><i>{t('steps')}</i></div>
         <div className="small muted" style={{ lineHeight: 1.45 }}>{t('The calories are at your floor of {0}. More movement instead of less food.', fmtInt(cut.minKcal))}</div>
       </>}
       {prop.kind === 'minicut' && <div className="small" style={{ lineHeight: 1.45 }}>{t('More than {0} over the end weight: a mini-cut of three to four weeks. Start it on Progress.', fmt1(r.zone?.yellow ?? 2.3) + ' ' + unit)}</div>}
       {prop.kind === 'keep' && <>
-        <div className="ci-eq"><b>{fmtInt(cut.kcal)}</b><i>kcal</i></div>
+        <div className="wk-eq"><b>{fmtInt(cut.kcal)}</b><i>kcal</i></div>
         <div className="small muted" style={{ lineHeight: 1.45 }}>{prop.maintain
           ? (r.zone?.zone === 'yellow' ? t('Above the green zone: hold the calories and log every bite for two weeks.') : t('At maintenance. Keep weighing every morning.'))
           : prop.early
@@ -164,7 +164,7 @@ export default function WeeklyCheckIn() {
       {prop.kind === 'break' && <div className="small" style={{ lineHeight: 1.45 }}>{t('Diet break: about {0} kcal a day until {1}. Nothing changes for next week.', fmtInt(prop.kcal), fmtDate(r.breakNow.to, true))}</div>}
       {prop.kind === 'hold' && <div className="small" style={{ lineHeight: 1.45 }}>{t('Water week after the break: {0} kcal, nothing changed for the fast drop on the scale.', fmtInt(prop.kcal))}</div>}
       {changes && <>
-        <div className="ci-choice" role="radiogroup" aria-label={t('Next week')}>
+        <div className="wk-choice" role="radiogroup" aria-label={t('Next week')}>
           {[['accept', t('Accept')], ['modify', t('Change')], ['skip', t('Keep as is')]].map(([k, label]) =>
             <button key={k} role="radio" aria-checked={choice === k} className={'chip nocap' + (choice === k ? ' on' : '')} onClick={() => setChoice(k)}>{label}</button>)}
         </div>
@@ -178,7 +178,7 @@ export default function WeeklyCheckIn() {
     {/* 4. one focus */}
     <h4 className="sec">{t('One focus for next week')}</h4>
     <div className="card">
-      <div className="ci-focus">
+      <div className="wk-focus">
         {FOCUS.map(f => <button key={f.id} className={'chip nocap' + (focus === f.id ? ' on' : '')} onClick={() => setFocus(f.id)}>{focusText(f, cut)}</button>)}
         <button className={'chip nocap' + (focus === 'own' ? ' on' : '')} onClick={() => setFocus('own')}>{t('My own…')}</button>
       </div>

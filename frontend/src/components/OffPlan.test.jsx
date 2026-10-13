@@ -51,7 +51,7 @@ describe('the plans card', () => {
     const plans = useStore.getState().S.plans
     expect(plans).toHaveLength(1)
     expect(plans[0]).toMatchObject({ trig: 'hunger', on: true })
-    expect(host.querySelector('.plan-sug')).toBeNull()
-    expect(host.querySelectorAll('.plan')).toHaveLength(1)
+    expect(host.querySelector('.ifplan-sug')).toBeNull()
+    expect(host.querySelectorAll('.ifplan')).toHaveLength(1)
   })
 })

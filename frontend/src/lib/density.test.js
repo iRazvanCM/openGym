@@ -9,6 +9,9 @@ describe('energy density', () => {
     const e = { d: '2026-11-02', food: [item('stew', 600, 100), item('bread', 100, 250), item('milk', 500, 50, 'ml')] }
     expect(dayDensity(e)).toEqual({ kcal: 850, grams: 700, density: 850 / 700 })
     expect(dayDensity({ food: [item('nuts', 50, 600)] })).toBeNull()   // too little weighed to tell
+    // an item read straight from a file, without its portion worked out
+    const { kcal, ...bare } = item('rice', 400, 130)
+    expect(dayDensity({ food: [bare] }).kcal).toBe(520)
   })
 
   it('sets the full days against the hungry ones', () => {

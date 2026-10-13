@@ -354,8 +354,9 @@ export function proteinCloser(S, { need, kcalLeft = Infinity, today, lang = 'en'
   const take = (food, mine) => {
     if (!lean(food)) return
     const key = food.code ? 'c' + food.code : food.ref || food.id || foldText(food.name)
-    if (seen.has(key)) return
-    seen.add(key)
+    const name = 'n' + foldText(food.name)
+    if (seen.has(key) || seen.has(name)) return
+    seen.add(key); seen.add(name)
     pool.push({ food, mine })
   }
   for (const r of recentFoods(S, today, { days: 45, limit: 60 })) take(foodFor(S, r, lang) || r, true)

@@ -46,9 +46,9 @@ describe('the weekly check-in', () => {
     expect(text).toContain('Your week')
     expect(text).toContain('Logged')
     expect(text).toContain('Days logged in part?')
-    expect(host.querySelectorAll('.ci-days [role="switch"], .ci-days .sw, .ci-days input').length).toBeGreaterThan(0)
-    expect(host.querySelector('.ci-eq').textContent).toContain('2,000')
-    expect(host.querySelector('.ci-eq b').textContent).toBe('1,850')
+    expect(host.querySelectorAll('.wk-days [role="switch"], .wk-days .sw, .wk-days input').length).toBeGreaterThan(0)
+    expect(host.querySelector('.wk-eq').textContent).toContain('2,000')
+    expect(host.querySelector('.wk-eq b').textContent).toBe('1,850')
 
     act(() => { button('Save check-in').click() })
     const S = useStore.getState().S
