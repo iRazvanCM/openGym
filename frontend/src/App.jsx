@@ -17,6 +17,7 @@ import { installViewportGuard } from './lib/viewport-guard.js'
 import { installChipDrag } from './lib/hchips.js'
 import { syncPushSubscription } from './lib/push.js'
 import { MOBILE } from './lib/mobile.js'
+import { DEMO } from './lib/demo.js'
 import { exitWorkoutEdit, startFlow } from './sheets.jsx'
 import Icon from './components/Icon.jsx'
 import TabBar from './components/TabBar.jsx'
@@ -46,7 +47,7 @@ import CoachChat from './views/CoachChat.jsx'
 import Measurements from './views/Measurements.jsx'
 import Progress from './views/Progress.jsx'
 import Food from './views/Food.jsx'
-import Setup from './views/Setup.jsx'
+import Onboarding from './views/Onboarding.jsx'
 import WeeklyCheckIn from './views/WeeklyCheckIn.jsx'
 import CoachIntake from './views/CoachIntake.jsx'
 import CoachSetup from './views/CoachSetup.jsx'
@@ -189,7 +190,11 @@ function Shell() {
   }, [inWorkout])
   // The chat owns the bottom of the screen as well: its composer sits where the tabs would be.
   // The first-launch card has no tabs either: they changed the route behind it.
-  const noTabs = inWorkout || loc.pathname === '/coach' || needsMobileOnboarding
+  // The first-run questions (views/Onboarding.jsx) until they are answered, or skipped: the screen
+  // the app opens on, with no tabs under it either — never over a session in progress. /setup is
+  // the same questions again.
+  const needsOnboarding = !!(user || isGuest) && ready && !needsMobileOnboarding && !S.onboarded && !S.active && !DEMO
+  const noTabs = inWorkout || loc.pathname === '/coach' || needsMobileOnboarding || needsOnboarding || loc.pathname === '/setup'
 
   const authed = user || isGuest
   if (!ready && !authed) return (
@@ -206,7 +211,7 @@ function Shell() {
           re-mounts the boundary, so the tab bar is always a way out */}
       <div id="app" className="vfade" key={loc.pathname}>
         <ErrorBoundary>
-          {!authed ? <Login /> : needsMobileOnboarding ? <MobileOnboarding /> : (
+          {!authed ? <Login /> : needsMobileOnboarding ? <MobileOnboarding /> : needsOnboarding ? <Onboarding /> : (
             <Routes>
               <Route path="/home" element={<Home />} />
               {/* Gym check-in — switched off in Settings, the route falls through to the
@@ -225,7 +230,7 @@ function Shell() {
               {/* The daily log and the cut it measures (views/Progress.jsx, lib/cut.js). */}
               <Route path="/progress" element={<Progress />} />
               <Route path="/food" element={<Food />} />
-              <Route path="/setup" element={<Setup />} />
+              <Route path="/setup" element={<Onboarding redo />} />
               <Route path="/weekly" element={<WeeklyCheckIn />} />
               <Route path="/settings" element={<SettingsRoute />} />
               <Route path="/settings/:page" element={<SettingsRoute />} />

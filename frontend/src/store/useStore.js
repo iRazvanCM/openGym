@@ -110,6 +110,9 @@ export const DEF = {
   foods: [],
   // What the setup asked to work the plan out — { sex, born, heightCm, activity } (lib/setup.js).
   profile: null,
+  // When the first-run questions were answered or skipped (views/Onboarding.jsx), in ms; null until
+  // then, and the app opens on them.
+  onboarded: null,
   queue: null,   // a planner's floating week (lib/queue.js) — via the API, or by this rotation feature (below)
   // The in-app rotation's reusable definition — { id, sequence, label } (lib/rotation.js). Never
   // a live queue: it only ever feeds `queue`, and `queue.rotationId` says the pass is managed here.
