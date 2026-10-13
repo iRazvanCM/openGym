@@ -15,7 +15,7 @@ describe('the app name', () => {
   it('is the name on the iPhone home screen and in the Health prompt', () => {
     const plist = read('ios/App/App/Info.plist')
     expect(plist).toMatch(new RegExp(`<key>CFBundleDisplayName</key>\\s*<string>${APP_NAME}</string>`))
-    expect(plist).toContain(`<string>${APP_NAME} only reads from Apple Health`)
+    expect(plist).toContain(`<string>${APP_NAME} writes the weigh-ins you log in it`)
   })
 
   it('is the Android launcher label and the Capacitor app name', () => {

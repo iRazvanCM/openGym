@@ -110,3 +110,16 @@ describe('progressPhotosOf — one file on two workouts', () => {
     expect(new Set(keys).size).toBe(2)
   })
 })
+
+describe('photos kept on a day of the daily log', () => {
+  it('sit with the workouts\' photos, by date, each with its pose', () => {
+    const S = {
+      workouts: [{ d: '2026-01-01', start: 100, media: [img('w1')] }],
+      dailyLog: [{ d: '2026-01-05', t: 1, photos: [{ pose: 'front', m: img('front1') }, { pose: 'side', m: img('side1') }] }, { d: 'junk', photos: [{ m: img('x') }] }],
+    }
+    const out = progressPhotosOf(S)
+    expect(hashes(out)).toEqual(['front1', 'side1', 'w1'])
+    expect(out.map(p => p.pose)).toEqual(['front', 'side', null])
+    expect(out[0].day).toBe(true)
+  })
+})

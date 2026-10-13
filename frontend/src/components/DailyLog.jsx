@@ -105,7 +105,7 @@ function DayForm({ date, close }) {
       cardio: v.cardio && v.cardio !== fromWorkouts ? v.cardio : null,
       sleep: v.sleep, alcohol: !v.dry, gym: workouts.length ? null : (v.gym ? true : null),
       energy: v.energy, hunger: v.hunger, note: v.note,
-      food: entry?.food, done: entry?.done,
+      food: entry?.food, done: entry?.done, partial: entry?.partial, photos: entry?.photos,
     })
     // What Apple Health filled in stays its own only while it is left as it was.
     const hk = (entry?.hk || []).filter(k => next[k] != null && next[k] === entry[k])
@@ -136,8 +136,9 @@ function DayForm({ date, close }) {
 
   const remove = () => {
     useStore.getState().update(s => {
-      // the food diary is not this form's to clear: a day with one keeps it
-      s.dailyLog = (s.dailyLog || []).map(e => (e?.d !== date ? e : e.food?.length ? { d: e.d, t: Date.now(), food: e.food, ...(e.done ? { done: true } : {}) } : null)).filter(Boolean)
+      // the food diary and the day's photos are not this form's to clear: a day with them keeps them
+      s.dailyLog = (s.dailyLog || []).map(e => (e?.d !== date ? e : e.food?.length || e.photos?.length
+        ? { d: e.d, t: Date.now(), ...(e.food?.length ? { food: e.food } : {}), ...(e.done ? { done: true } : {}), ...(e.photos?.length ? { photos: e.photos } : {}) } : null)).filter(Boolean)
     })
     toast(t('Log removed'))
     close()

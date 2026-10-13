@@ -2367,6 +2367,15 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .recipe-amt .num{font-size:15px}
 .recipe-tot{margin-top:14px}
 
+.food-oil{margin:-4px 0 14px;padding:10px 12px;border-radius:var(--r);background:color-mix(in srgb,var(--yellow) 12%,transparent);font-size:13px;line-height:1.4;color:var(--label)}
+
+.pp-add{padding:12px 14px;margin-bottom:14px}
+.pp-poses{display:flex;gap:6px;flex-wrap:wrap}
+.pp-poses .chip{background:var(--surface-2)}
+.pp-poses .chip.on{background:var(--acc);color:var(--on-acc)}
+.pp-day{flex:1;min-width:0;height:40px}
+.pp-pose{position:absolute;inset-inline-start:6px;bottom:6px;padding:2px 7px;border-radius:7px;font-size:11px;font-weight:600;color:#fff;background:rgba(0,0,0,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+
 /* ------------------------------------------------------------ off plan, plans -- */
 .food-off{display:flex;align-items:center;gap:12px;cursor:pointer}
 .food-off:active{background:var(--surface-2)}

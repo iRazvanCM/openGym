@@ -315,6 +315,28 @@ export function addMealToDay(state, iso, saved, meal, now = Date.now()) {
   return m.items.length
 }
 
+/* ------------------------------------------------------------------- the pan's oil -- */
+// Weighed raw, a piece of meat or a potato carries none of the oil it is then fried in — a
+// tablespoon is 120 kcal that a diary never sees (Cronometer asks about it for that reason). The
+// built-in pan-fried and fried foods already hold the oil a normal pan leaves on them.
+
+/** 'ask' for a food weighed raw (the oil is not in it), 'included' for a built-in fried one, else null. */
+export function oilAsk(food) {
+  if (!food) return null
+  const ref = String(food.ref || food.id || '')
+  const name = foldText(food.name)
+  if (ref.startsWith('basic:') && /-(pan|fried)\b|-fried$|-pan$/.test(ref)) return 'included'
+  if (/-raw$/.test(ref) || /\b(raw|crud|cruda|crude|crudă)\b/.test(name)) return 'ask'
+  return null
+}
+
+/** The oil added to a meal: sunflower oil (the built-in one), `grams` of it. */
+export const OIL_REF = 'basic:sunflower-oil'
+export function oilItem(meal, grams, lang = 'en') {
+  const b = BASIC_BY_ID.get(OIL_REF)
+  return { meal, name: lang === 'ro' ? b.ro : b.en, src: 'basic', ref: OIL_REF, unit: 'g', amount: grams, per100: b.per100 }
+}
+
 /* ------------------------------------------------------------- closing the protein -- */
 
 /**

@@ -73,6 +73,6 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>LiftLog only reads from Apple Health; it does not write to it.</string>
+	<string>LiftLog writes the weigh-ins you log in it and each day's calories, protein, carbs and fat to Apple Health, only if you turn that on in Settings.</string>
 </dict>
 </plist>

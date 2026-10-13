@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyHealthDays, healthDays, workoutKind } from './apple-health.js'
+import { applyHealthDays, healthDays, healthWriteDays, workoutKind } from './apple-health.js'
 
 const at = (iso, hhmm) => new Date(`${iso}T${hhmm}:00`).getTime()
 const H = 3600e3
@@ -99,5 +99,32 @@ describe('putting Health into the log', () => {
     S.dailyLog[1].hk = ['sleep']   // what the daily log form leaves after the steps were typed over
     applyHealthDays(S, { '2026-11-03': { steps: 12500, sleep: 7 } }, 100)
     expect(S.dailyLog[1]).toMatchObject({ steps: 9999, sleep: 7 })
+  })
+})
+
+describe('writing to Apple Health', () => {
+  const S = {
+    unit: 'kg',
+    bodyweight: [{ d: '2026-11-02', w: 105.4, t: at('2026-11-02', '07:10') }, { d: '2026-11-03', w: 105.1, t: at('2026-11-03', '07:05') }],
+    dailyLog: [
+      { d: '2026-11-02', t: 1, kcal: 1980, protein: 176 },
+      { d: '2026-11-03', t: 1, food: [{ id: 'a', meal: 'b', name: 'Oats', src: 'quick', kcal: 600, p: 20, c: 90, f: 12 }] },   // today, not complete
+      { d: '2026-11-01', t: 1, kcal: 900, partial: true },
+    ],
+  }
+
+  it('sends the days that count and the weigh-ins logged here, never one a scale put in Health', () => {
+    const raw = { weights: [{ t: at('2026-11-03', '07:00'), kg: 105.1, source: 'com.garmin', own: false }, { t: at('2026-11-02', '07:10'), kg: 105.4, own: true }] }
+    const days = healthWriteDays(S, raw, { from: '2026-11-01', to: '2026-11-03', today: '2026-11-03' })
+    expect(days).toEqual([
+      { d: '2026-11-02', kcal: 1980, protein: 176, weightKg: 105.4, weighedAt: at('2026-11-02', '07:10') },
+    ])
+  })
+
+  it('writes an lb profile\'s weight in kilos, and reads its own weigh-ins back as nothing new', () => {
+    const lb = { ...S, unit: 'lb', bodyweight: [{ d: '2026-11-02', w: 232.4, t: 5 }], dailyLog: [] }
+    expect(healthWriteDays(lb, {}, { from: '2026-11-02', to: '2026-11-02', today: '2026-11-03' })[0].weightKg).toBeCloseTo(105.41, 2)
+    const d = healthDays({ weights: [{ t: at('2026-11-02', '07:00'), kg: 105, own: true }] }, { from: '2026-11-02', to: '2026-11-02' })
+    expect(d['2026-11-02']).toBeUndefined()
   })
 })

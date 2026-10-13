@@ -28,6 +28,7 @@ import { goalSheet } from '../sheets.jsx'
 import PrecutCard from '../components/PrecutCard.jsx'
 import { finishCut, startMiniCut } from '../lib/maintain.js'
 import { densityReport } from '../lib/density.js'
+import { profileOf } from '../lib/setup.js'
 
 const update = fn => useStore.getState().update(fn)
 const toast = message => useUI.getState().toast(message)
@@ -516,6 +517,9 @@ export default function Progress() {
     const first = (S.measurements || []).filter(m => m.waist != null && m.d >= addDays(cut.start, -7)).sort((a, b) => a.d.localeCompare(b.d))[0]
     return first || null
   }, [S.measurements, cut.start])
+  // waist-to-height: the waist in cm over the height in cm (both from the profile), under 0.5 healthy
+  const heightCm = profileOf(S).heightCm
+  const whtr = waist && heightCm ? waist.value / heightCm : null
   const waistDelta = waist && waistStart && waist.entry.d !== waistStart.d ? toMeasurementDisplay(waist.value, S.unit) - toMeasurementDisplay(waistStart.waist, S.unit) : null
 
   const exportCsv = async () => {
@@ -622,7 +626,8 @@ export default function Progress() {
       <Tile icon="shield" label={t('Alcohol-free')} value={`${con.dry.n} / ${con.dry.of}`} tone={con.dry.of > 0 && con.dry.n === con.dry.of ? 'good' : ''}
         sub={plural(con.dry.best, 'days this week · best run {0} day', 'days this week · best run {0} days')} />
       {waist && <Tile icon="ruler" label={t('Waist')} value={fmtNum(toMeasurementDisplay(waist.value, S.unit)) + ' ' + measurementUnit(S.unit)} tone={waistDelta != null && waistDelta < 0 ? 'good' : ''}
-        sub={waistDelta != null ? t('{0} since the start', (waistDelta > 0 ? '+' : '−') + fmtNum(Math.abs(waistDelta)) + ' ' + measurementUnit(S.unit)) : fmtDate(waist.entry.d, true)} />}
+        sub={[waistDelta != null ? t('{0} since the start', (waistDelta > 0 ? '+' : '−') + fmtNum(Math.abs(waistDelta)) + ' ' + measurementUnit(S.unit)) : fmtDate(waist.entry.d, true),
+          whtr != null ? t('{0} of your height · under 0.5 is the healthy range', whtr.toFixed(2)) : null].filter(Boolean).join(' · ')} />}
       <Tile icon="clipboard" label={t('Logged')} value={`${con.log.n} / ${con.log.of}`} tone={con.log.of > 0 && con.log.n >= con.log.of - 1 ? 'good' : ''}
         sub={t('weighed {0} / {1} · best run {2}', con.weigh.n, con.weigh.of, plural(con.log.best, '{0} day', '{0} days'))} />
     </div>

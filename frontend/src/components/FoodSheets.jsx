@@ -16,7 +16,7 @@ import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import {
   MEALS, MEAL_NAMES, addFoodItem, addMealToDay, cleanPer100, foodFor, foodLang, foodTotals, lastPortionOf, mealsOf, myFoodByCode,
-  normalizeFood, portion, recentFoods, removeFoodItem, saveMyFood, searchLocal, updateFoodItem, basicCats,
+  normalizeFood, oilAsk, oilItem, portion, recentFoods, removeFoodItem, saveMyFood, searchLocal, updateFoodItem, basicCats,
 } from '../lib/food.js'
 import { recipeSheet } from './RecipeSheet.jsx'
 import { cleanCode, offProduct, offSearch } from '../lib/off.js'
@@ -75,6 +75,8 @@ function Portion({ date, meal: meal0, food, item, last, start, close, onDone, on
   const [mode, setMode] = useState(() => (item ? (item.sv && serving ? 'sv' : item.unit === 'ml' ? 'ml' : 'g') : base))
   const [n, setN] = useState(() => (item ? (item.sv && serving ? item.sv : item.amount) : start > 0 ? start : 100))
   const [meal, setMeal] = useState(item?.meal || meal0)
+  const [oil, setOil] = useState(0)   // grams of oil the pan added, for a food weighed raw
+  const oilMode = !item && !onPick ? oilAsk(food) : null
   const grams = mode === 'sv' ? (n || 0) * serving.amount : (n || 0)
   const tot = portion(food.per100, grams)
   const shownUnit = mode === 'sv' ? base : mode
@@ -117,8 +119,9 @@ function Portion({ date, meal: meal0, food, item, last, start, close, onDone, on
         src: food.src === 'basic' ? 'basic' : food.src === 'off' ? 'off' : 'custom', ref: food.ref || food.id || '',
         unit: shownUnit, amount: grams, sv, per100: food.per100,
       })
+      if (oil > 0) addFoodItem(s, date, oilItem(meal, oil, lang()))
     })
-    toast(item ? t('Saved') : t('Added to {0}', mealName(meal)))
+    toast(item ? t('Saved') : oil > 0 ? t('Added to {0}, with {1} g of oil', mealName(meal), oil) : t('Added to {0}', mealName(meal)))
     close()
     onDone?.()
   }
@@ -160,6 +163,15 @@ function Portion({ date, meal: meal0, food, item, last, start, close, onDone, on
       <div><b>{fmtAmt(tot.c)}</b><span>{t('carbs')}</span></div>
       <div><b>{fmtAmt(tot.f)}</b><span>{t('fat')}</span></div>
     </div>
+
+    {oilMode === 'ask' && <div className="food-oil">
+      <span>{t('Cooked in oil? Weighed raw, the pan\'s oil is not in it.')}</span>
+      <div className="food-quick" style={{ margin: '6px 0 0' }}>
+        {[[5, t('+ 1 tsp oil (5 g)')], [14, t('+ 1 tbsp oil (14 g)')]].map(([g, label]) =>
+          <button key={g} className={'chip nocap' + (oil === g ? ' on' : '')} onClick={() => setOil(o => (o === g ? 0 : g))}>{label}</button>)}
+      </div>
+    </div>}
+    {oilMode === 'included' && <div className="dim small" style={{ margin: '-6px 2px 12px' }}>{t('The oil of a normal pan is already in these numbers.')}</div>}
 
     {!onPick && <MealChips value={meal} onChange={setMeal} />}
 

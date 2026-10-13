@@ -1,5 +1,6 @@
-// Every progress photo across every logged workout, in one place, newest first — a quick way to
-// add one to today, and a before/after comparison between any two.
+// Every progress photo — the ones on logged workouts and the ones kept on a day of the daily log
+// (lib/day-photos.js), tagged front, side or back — in one place, newest first: a photo added to
+// any day with its pose, a filter by pose, and a before/after comparison between any two.
 //
 // WorkoutMedia.jsx already lets a photo or video be attached to a finished workout — that is
 // still the only place one is stored (addWorkoutMedia, a saved workout's own `media` list) and
@@ -15,8 +16,9 @@ import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { t, tn } from '../lib/i18n.js'
 import { fmtDate, todayISO } from '../lib/format.js'
-import { workoutMediaOf, WORKOUT_MEDIA_MAX } from '../lib/media-refs.js'
-import { addWorkoutMedia } from '../lib/workout-media.js'
+import { workoutMediaOf } from '../lib/media-refs.js'
+import { POSES, POSE_LABEL, addDayPhoto, normalizeDayPhotos } from '../lib/day-photos.js'
+import { isIso } from '../lib/cut.js'
 import { syncMedia } from '../lib/media-sync.js'
 import { useMediaPicker } from '../components/CustomMediaField.jsx'
 import { CustomThumb, MediaView, useMediaUrl } from '../components/CustomMedia.jsx'
@@ -44,8 +46,13 @@ export function progressPhotosOf(S) {
     for (const m of workoutMediaOf(w)) {
       if (m.kind === 'video') continue
       // `key`: the same file can sit on two workouts (one hash), and each is its own photo here.
-      out.push({ key: (w.id || w.start || w.d) + ':' + m.hash, d: w.d, start: w.start || 0, w, m })
+      out.push({ key: (w.id || w.start || w.d) + ':' + m.hash, d: w.d, start: w.start || 0, w, m, pose: null })
     }
+  }
+  // the photos kept on a day of the daily log, with their pose
+  for (const e of (S && S.dailyLog) || []) {
+    if (!e || !isIso(e.d)) continue
+    for (const p of normalizeDayPhotos(e.photos)) out.push({ key: 'day:' + e.d + ':' + p.m.hash, d: e.d, start: p.m.at || 0, m: p.m, pose: p.pose, day: true })
   }
   out.sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : b.start - a.start))
   return out
@@ -136,9 +143,13 @@ export default function ProgressPhotos() {
   const groups = useMemo(() => groupByDate(photos), [photos])
   const [comparing, setComparing] = useState(false)
   const [picked, setPicked] = useState([])   // up to 2 photo keys, in tap order
-  const today = todaysWorkout(S)
   const { pick, busy, canAdd, showAdd } = useMediaPicker()
   const fileRef = useRef(null)
+  const [pose, setPose] = useState('front')
+  const [day, setDay] = useState(todayISO())
+  const [only, setOnly] = useState(null)   // a pose to show alone
+  const shown = useMemo(() => (only ? photos.filter(p => p.pose === only) : photos), [photos, only])
+  const shownGroups = useMemo(() => (only ? groupByDate(shown) : groups), [shown, groups, only])
 
   const toggle = p => setPicked(cur => {
     if (cur.includes(p.key)) return cur.filter(k => k !== p.key)
@@ -153,20 +164,19 @@ export default function ProgressPhotos() {
     cancelCompare()
     if (a && b) openProgressCompare(a, b)
   }
-  // Attaches straight onto today's already-logged workout — the file picker offers the camera
-  // on a phone the same way WorkoutMedia.jsx's does, since it is the very same input.
+  // Kept on the chosen day of the daily log, with its pose — any day, a workout or none. The file
+  // picker offers the camera on a phone the same way WorkoutMedia.jsx's does.
   const onFile = async ev => {
     const file = ev.target.files && ev.target.files[0]
     ev.target.value = ''
-    if (!file || !today) return
-    if (workoutMediaOf(today).length >= WORKOUT_MEDIA_MAX) { toast(t('Up to {0} photos or videos per workout.', WORKOUT_MEDIA_MAX)); return }
+    if (!file || !isIso(day) || day > todayISO()) return
     const got = await pick(file)
     if (!got) return
     let res
-    update(s => { res = addWorkoutMedia(s, today, got) })
+    update(s => { res = addDayPhoto(s, day, got, pose) })
     if (res === 'added') { toast(t('Photo added')); syncMedia({ force: true }) }
-    else if (res === 'full') toast(t('Up to {0} photos or videos per workout.', WORKOUT_MEDIA_MAX))
-    else if (res === 'gone') toast(t('Workout deleted'))
+    else if (res === 'full') toast(t('Up to {0} photos a day.', 6))
+    else if (res === 'invalid') toast(t('Only photos can go here.'))
   }
 
   return <>
@@ -178,24 +188,40 @@ export default function ProgressPhotos() {
         : <Button size="sm" variant="tinted" onClick={() => setComparing(true)}>{t('Compare')}</Button>)}
     </div>
 
-    {!comparing && showAdd && <div className="row" style={{ marginBottom: 16 }}>
-      {today
-        ? <Button icon={busy ? 'image' : 'camera'} disabled={!canAdd} onClick={() => fileRef.current?.click()}>
-            {busy ? t('Loading…') : t('Add a photo to today')}
-          </Button>
-        : <Button icon="dumbbell" onClick={() => nav('/workout')}>{t('Log today’s workout to add a photo')}</Button>}
+    {!comparing && showAdd && <div className="card pp-add">
+      <div className="pp-poses" role="radiogroup" aria-label={t('Pose')}>
+        {POSES.map(x => <button key={x} role="radio" aria-checked={pose === x} className={'chip nocap' + (pose === x ? ' on' : '')} onClick={() => setPose(x)}>{t(POSE_LABEL[x])}</button>)}
+      </div>
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <label className="dl-day-m pp-day">
+          <span>{day === todayISO() ? t('Today') : fmtDate(day, true)}</span>
+          <Icon name="calendar" className="dl-day-ic" />
+          <input type="date" value={day} max={todayISO()} aria-label={t('Date')}
+            onClick={e => { try { e.currentTarget.showPicker?.() } catch { /* the tap still focuses it */ } }}
+            onChange={e => { if (isIso(e.target.value) && e.target.value <= todayISO()) setDay(e.target.value) }} />
+        </label>
+        <Button icon={busy ? 'image' : 'camera'} variant="tinted" disabled={!canAdd} onClick={() => fileRef.current?.click()}>
+          {busy ? t('Loading…') : t('Add photo')}
+        </Button>
+      </div>
+      <div className="small dim" style={{ marginTop: 8, lineHeight: 1.4 }}>{t('Same light, same spot, mornings after the weigh-in: then two dates compare.')}</div>
       <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFile} />
+    </div>}
+
+    {photos.some(p => p.pose) && <div className="pp-poses" style={{ marginBottom: 12 }} role="tablist" aria-label={t('Show')}>
+      <button role="tab" aria-selected={!only} className={'chip nocap' + (!only ? ' on' : '')} onClick={() => setOnly(null)}>{t('All')}</button>
+      {POSES.map(x => <button key={x} role="tab" aria-selected={only === x} className={'chip nocap' + (only === x ? ' on' : '')} onClick={() => setOnly(x)}>{t(POSE_LABEL[x])}</button>)}
     </div>}
 
     {comparing && <div className="small dim" style={{ margin: '0 0 12px' }}>
       {picked.length < 2 ? t('Pick two photos to compare.') : t('Ready! Open the comparison.')}
     </div>}
 
-    {!photos.length
+    {!shown.length
       ? <div className="empty"><div className="ico"><Icon name="image" /></div>
-          {t('No progress photos yet. The button above adds one to today, once today has a logged workout.')}
+          {only ? t('No photos with this pose yet.') : t('No progress photos yet. Pick a pose and add one to any day above.')}
         </div>
-      : groups.map(g => (
+      : shownGroups.map(g => (
         <div key={g.d} style={{ marginBottom: 18 }}>
           <div className="small muted" style={{ marginBottom: 6 }}>{fmtDate(g.d, true, true)}</div>
           <div className="wmedia-grid">
@@ -207,6 +233,7 @@ export default function ProgressPhotos() {
                   aria-label={fmtDate(p.d, true)}
                   onClick={() => (comparing ? toggle(p) : openPhotoView(p))}>
                   <CustomThumb ex={{ custom: true, media: p.m }} />
+                  {p.pose && <span className="pp-pose">{t(POSE_LABEL[p.pose])}</span>}
                   {selected && <span className="pp-check"><Icon name="check" /></span>}
                 </button>
               )

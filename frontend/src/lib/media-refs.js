@@ -112,7 +112,8 @@ export function workoutMediaOf(w, max = WORKOUT_MEDIA_MAX) {
 
 /**
  * Every MediaRef-like object a state holds, as it stands (not normalised): each custom
- * exercise's `media` and each entry of each logged workout's `media` list. The one walk behind
+ * exercise's `media`, each entry of each logged workout's `media` list, and each progress photo
+ * kept on a day of the daily log. The one walk behind
  * referencedHashes, referencedFiles and the owed count, so they can never disagree about where
  * media live. The session in progress is not walked: it never syncs (the server drops `active`),
  * media are only ever attached to a saved workout, and the history editor's copy of one leaves
@@ -129,13 +130,18 @@ export function stateMediaRefs(state) {
     if (!isObj(w) || !Array.isArray(w.media)) continue
     for (const m of w.media) if (isObj(m)) out.push(m)
   }
+  // a progress photo taken on any day (lib/day-photos.js): dailyLog[].photos[] = { pose, m }
+  for (const e of Array.isArray(state.dailyLog) ? state.dailyLog : []) {
+    if (!isObj(e) || !Array.isArray(e.photos)) continue
+    for (const p of e.photos) if (isObj(p) && isObj(p.m)) out.push(p.m)
+  }
   return out
 }
 
 /**
  * Every blob hash a state refers to, the same answer as api/media.js referencedHashes (the shared
- * fixture api/test/fixtures/media-refs.json pins both): customEx[].media and every entry of
- * workouts[].media. Deliberately looser than normalizeMediaRef and workoutMediaOf: each hash and
+ * fixture api/test/fixtures/media-refs.json pins both): customEx[].media, every entry of
+ * workouts[].media and every dailyLog[].photos[].m. Deliberately looser than normalizeMediaRef and workoutMediaOf: each hash and
  * poster hash counts on its own as long as it is well-formed, and a workout's list counts past
  * its cap, because this set decides what is KEPT, and keeping too much is the safe side.
  */

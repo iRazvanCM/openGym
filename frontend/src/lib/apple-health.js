@@ -1,6 +1,7 @@
-// Apple Health on the iPhone app: steps, sleep, body weight and workouts into the daily log.
+// Apple Health on the iPhone app: steps, sleep, body weight and workouts into the daily log — and,
+// when switched on, the weigh-ins logged here and each day's calories and macros back out.
 //
-// Read only. Garmin Connect, an Apple Watch, the iPhone itself or a smart scale write to Apple
+// Garmin Connect, an Apple Watch, the iPhone itself or a smart scale write to Apple
 // Health, and this reads them back — so a Garmin's steps and sleep reach the log with no Garmin
 // account in the app. The native side (ios/App/App/AppleHealthPlugin.swift) answers with the raw
 // samples of a range of days; the rest is here, pure and tested:
@@ -16,11 +17,11 @@
 // Whether it is on is a fact about this phone, like Health Connect on Android (health-sync.js):
 // its own file in the app's data directory, never S — it does not sync or ride in a backup.
 import { MOBILE, readJsonFile, writeJsonFile } from './mobile.js'
-import { LB_PER_KG, addDays, isIso, normalizeLogEntry } from './cut.js'
+import { LB_PER_KG, addDays, countedNutrition, isIso, logFor, normalizeLogEntry, weighIns } from './cut.js'
 import { isoOf, todayISO } from './format.js'
 
 export const AH_FILE = 'opengym-apple-health.json'
-const OFF = { on: false, at: 0, error: null, imported: 0 }
+const OFF = { on: false, at: 0, error: null, imported: 0, write: false, wrote: 0, writeAt: 0, writeError: null }
 const MIN = 60000
 
 /* ------------------------------------------------------------- what samples mean -- */
@@ -80,6 +81,8 @@ export function healthDays(raw, { from, to }) {
   }
 
   for (const w of Array.isArray(raw?.weights) ? raw.weights : []) {
+    // a weigh-in this app wrote there itself is this app's own, already in the log (or deleted from it)
+    if (w?.own) continue
     const kg = Number(w?.kg), t = Number(w?.t)
     if (!(kg > 20 && kg < 400) || !(t > 0)) continue
     const d = isoOf(new Date(t))
@@ -152,6 +155,38 @@ export function applyHealthDays(state, days, now = Date.now()) {
   return changed
 }
 
+/**
+ * What goes out to Apple Health for the days `from`–`to`: [{ d, kcal, protein, carbs, fat,
+ * weightKg, weighedAt }] — a day's nutrition once it counts (lib/cut.js countedNutrition: a past
+ * day, or today once complete; never one marked as logged in part), and a weigh-in logged here on
+ * a day Apple Health has no weight from anything else for (a smart scale's, read in, is not sent
+ * back). `raw` is what read() returned for the same days.
+ */
+export function healthWriteDays(S, raw, { from, to, today }) {
+  const out = []
+  const per = S?.unit === 'lb' ? LB_PER_KG : 1
+  const fromElsewhere = new Set((Array.isArray(raw?.weights) ? raw.weights : []).filter(w => w && !w.own && Number(w.t) > 0).map(w => isoOf(new Date(Number(w.t)))))
+  const weights = new Map(weighIns(S?.bodyweight).filter(b => b.d >= from && b.d <= to).map(b => [b.d, b]))
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const e = logFor(S, d)
+    const n = e ? countedNutrition(e, today) : null
+    const row = { d }
+    if (n && n.kcal != null) {
+      row.kcal = Math.round(n.kcal)
+      if (n.protein != null) row.protein = Math.round(n.protein * 10) / 10
+      if (n.carbs != null) row.carbs = Math.round(n.carbs * 10) / 10
+      if (n.fat != null) row.fat = Math.round(n.fat * 10) / 10
+    }
+    const b = weights.get(d)
+    if (b && !fromElsewhere.has(d)) {
+      row.weightKg = Math.round(b.w / per * 100) / 100
+      if (b.t > 0) row.weighedAt = b.t
+    }
+    if (Object.keys(row).length > 1) out.push(row)
+  }
+  return out
+}
+
 /* --------------------------------------------------------------- the phone side -- */
 
 // Wrapped in an object: a Capacitor plugin proxy answers `then`, so a promise resolved with the
@@ -213,7 +248,15 @@ export function importAppleHealth(getState, update, { days = 7, force = false } 
     const probe = JSON.parse(JSON.stringify({ unit: getState().unit, dailyLog: getState().dailyLog || [], bodyweight: getState().bodyweight || [] }))
     let changed = applyHealthDays(probe, byDay)
     if (changed) update(s => { changed = applyHealthDays(s, byDay) })
-    const out = { ...h, at: Date.now(), error: null, imported: (h.imported || 0) + changed, days: Object.keys(byDay).length }
+    let out = { ...h, at: Date.now(), error: null, imported: (h.imported || 0) + changed, days: Object.keys(byDay).length }
+    // and back out, when switched on: the same days, what this app wrote there replaced
+    if (h.write) {
+      try {
+        const days = healthWriteDays(getState(), raw, { from, to, today: to })
+        const w = await p.AH.write({ from, to, days: JSON.stringify(days) })
+        out = { ...out, wrote: w?.written || 0, writeAt: Date.now(), writeError: null }
+      } catch (e) { out = { ...out, writeAt: Date.now(), writeError: 'failed' } }
+    }
     await save(out); told(out)
     return { changed }
   })().finally(() => { running = null })
@@ -234,6 +277,30 @@ export async function connectAppleHealth(getState, update) {
   await save({ ...h, on: true, error: null })
   const r = await importAppleHealth(getState, update, { days: 30, force: true })
   return { ok: !r.error, reason: r.error || null, changed: r.changed || 0 }
+}
+
+/**
+ * Writing switched on: Apple Health's permission sheet for the five things written, then the last
+ * two weeks out. Resolves { ok, reason } — 'denied' when nothing was allowed.
+ */
+export async function enableHealthWrite(getState, update) {
+  const p = await plugin()
+  if (!p) return { ok: false, reason: 'unsupported' }
+  let r
+  try { r = await p.AH.requestWrite() }
+  catch (e) { return { ok: false, reason: e?.code === 'entitlement' ? 'entitlement' : 'failed' } }
+  if (!(r?.allowed > 0)) return { ok: false, reason: 'denied' }
+  const h = await loadAppleHealth()
+  await save({ ...h, write: true, writeError: null })
+  await importAppleHealth(getState, update, { days: 14, force: true })
+  return { ok: true }
+}
+
+export async function disableHealthWrite() {
+  const h = await loadAppleHealth()
+  const out = { ...h, write: false, writeError: null }
+  await save(out); told(out)
+  return out
 }
 
 export async function disconnectAppleHealth() {

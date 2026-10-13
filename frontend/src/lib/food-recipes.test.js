@@ -70,3 +70,18 @@ describe('closing the protein', () => {
     expect(proteinCloser(S, { need: 30, kcalLeft: 0, today }).every(x => x.kcal <= 100)).toBe(true)
   })
 })
+
+describe('the pan\'s oil', () => {
+  it('is asked about for food weighed raw, and said to be in a built-in fried one', async () => {
+    const { basicFoods, oilAsk, oilItem, OIL_REF, normalizeFoodItem } = await import('./food.js')
+    const B = basicFoods('en')
+    const f = id => B.find(x => x.id === 'basic:' + id)
+    expect(oilAsk(f('chicken-breast-raw'))).toBe('ask')
+    expect(oilAsk(f('chicken-breast-pan'))).toBe('included')
+    expect(oilAsk(f('chicken-schnitzel-fried'))).toBe('included')
+    expect(oilAsk(f('chicken-breast-boiled'))).toBeNull()
+    expect(oilAsk({ name: 'Piept de pui crud', ref: 'my-1' })).toBe('ask')
+    const oil = normalizeFoodItem({ ...oilItem('d', 14, 'en'), id: 'o' })
+    expect(oil).toMatchObject({ meal: 'd', ref: OIL_REF, amount: 14, kcal: 124, f: 14 })
+  })
+})

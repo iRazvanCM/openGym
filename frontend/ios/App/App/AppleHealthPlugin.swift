@@ -3,8 +3,9 @@ import Capacitor
 import HealthKit
 
 /**
- * Apple Health, read only: the steps of each day, the nights' sleep, body weight and workouts,
- * for the daily log. Garmin Connect, an Apple Watch, the iPhone itself or a smart scale write
+ * Apple Health: the steps of each day, the nights' sleep, body weight and workouts read into the
+ * daily log — and, when switched on, the weigh-ins logged in the app and each day's calories and
+ * macros written back, for other apps to read. Garmin Connect, an Apple Watch, the iPhone itself or a smart scale write
  * there; reading Apple Health is how their numbers reach openGym without an account anywhere.
  * What goes where — which day a night belongs to, overlapping sources, what counts as cardio —
  * is worked out in JavaScript (src/lib/apple-health.js), where it has tests.
@@ -18,8 +19,11 @@ import HealthKit
  *   await AH.requestAuthorization()   → { requested }   (rejects 'entitlement' when this install
  *                                                       was signed without the HealthKit entitlement)
  *   await AH.read({ from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }) →
- *     { steps: [{ d, steps }], sleep: [{ start, end, value, source }], weights: [{ t, kg, source }],
- *       workouts: [{ start, end, type, source, name }], errors: [String] }   (times in ms)
+ *     { steps: [{ d, steps }], sleep: [{ start, end, value, source }], weights: [{ t, kg, source, own }],
+ *       workouts: [{ start, end, type, source, name }], errors: [String] }   (times in ms; `own`: written by this app)
+ *   await AH.requestWrite()           → { requested, allowed }   (allowed: how many of the five types may be written)
+ *   await AH.write({ from, to, days: JSON.stringify([{ d, kcal?, protein?, carbs?, fat?, weightKg?, weighedAt? }]) })
+ *     → { written, errors }   Replaces what this app wrote between `from` and `to` (and nothing else).
  */
 @objc(AppleHealthPlugin)
 public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -28,7 +32,9 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "isAvailable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestAuthorization", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "read", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "read", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestWrite", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "write", returnType: CAPPluginReturnPromise)
     ]
 
     private let store = HKHealthStore()
@@ -39,6 +45,16 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
         if let t = HKObjectType.quantityType(forIdentifier: .bodyMass) { types.insert(t) }
         if let t = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { types.insert(t) }
         types.insert(HKObjectType.workoutType())
+        return types
+    }
+
+    // What the app writes: the weigh-ins logged in it, and each day's calories and macros.
+    private func shareTypes() -> Set<HKSampleType> {
+        var types = Set<HKSampleType>()
+        let ids: [HKQuantityTypeIdentifier] = [.bodyMass, .dietaryEnergyConsumed, .dietaryProtein, .dietaryCarbohydrates, .dietaryFatTotal]
+        for id in ids {
+            if let t = HKQuantityType.quantityType(forIdentifier: id) { types.insert(t) }
+        }
         return types
     }
 
@@ -146,11 +162,14 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: byStart) { _, samples, error in
                 var rows: [[String: Any]] = []
+                let mine = Bundle.main.bundleIdentifier ?? ""
                 for case let sample as HKQuantitySample in samples ?? [] {
+                    let source = sample.sourceRevision.source.bundleIdentifier
                     rows.append([
                         "t": AppleHealthPlugin.millis(sample.startDate),
                         "kg": sample.quantity.doubleValue(for: HKUnit.gramUnit(with: .kilo)),
-                        "source": sample.sourceRevision.source.bundleIdentifier
+                        "source": source,
+                        "own": !mine.isEmpty && source == mine
                     ])
                 }
                 finish("weights", rows, error)
@@ -185,6 +204,106 @@ public class AppleHealthPlugin: CAPPlugin, CAPBridgedPlugin {
             let out = result
             lock.unlock()
             call.resolve(out)
+        }
+    }
+
+    @objc func requestWrite(_ call: CAPPluginCall) {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            call.reject("Health data is not available on this device", "unavailable")
+            return
+        }
+        let share = shareTypes()
+        store.requestAuthorization(toShare: share, read: readTypes()) { success, error in
+            if let error = error {
+                let message = error.localizedDescription
+                call.reject(message, message.lowercased().contains("entitlement") ? "entitlement" : "failed")
+                return
+            }
+            // Unlike reading, whether writing was allowed can be asked.
+            let allowed = share.filter { self.store.authorizationStatus(for: $0) == .sharingAuthorized }.count
+            call.resolve(["requested": success, "allowed": allowed])
+        }
+    }
+
+    @objc func write(_ call: CAPPluginCall) {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            call.reject("Health data is not available on this device", "unavailable")
+            return
+        }
+        guard let fromText = call.getString("from"), let toText = call.getString("to"),
+              let fromDay = AppleHealthPlugin.parseDay(fromText), let toDay = AppleHealthPlugin.parseDay(toText) else {
+            call.reject("from and to are required, as YYYY-MM-DD")
+            return
+        }
+        guard let json = call.getString("days"),
+              let days = (try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [])) as? [[String: Any]] else {
+            call.reject("days is required, as JSON")
+            return
+        }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: fromDay)
+        guard let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: toDay)), end > start else {
+            call.reject("to must not be before from")
+            return
+        }
+
+        var samples: [HKQuantitySample] = []
+        for day in days {
+            guard let d = day["d"] as? String, let date = AppleHealthPlugin.parseDay(d) else { continue }
+            let midnight = calendar.startOfDay(for: date)
+            guard midnight >= start, midnight < end else { continue }
+            let noon = calendar.date(byAdding: .hour, value: 12, to: midnight) ?? midnight
+            var weighed = calendar.date(byAdding: .hour, value: 7, to: midnight) ?? midnight
+            if let ms = day["weighedAt"] as? Double, ms > 0 { weighed = Date(timeIntervalSince1970: ms / 1000) }
+            let rows: [(HKQuantityTypeIdentifier, String, HKUnit, Date)] = [
+                (.dietaryEnergyConsumed, "kcal", HKUnit.kilocalorie(), noon),
+                (.dietaryProtein, "protein", HKUnit.gram(), noon),
+                (.dietaryCarbohydrates, "carbs", HKUnit.gram(), noon),
+                (.dietaryFatTotal, "fat", HKUnit.gram(), noon),
+                (.bodyMass, "weightKg", HKUnit.gramUnit(with: .kilo), weighed)
+            ]
+            for (id, key, unit, at) in rows {
+                guard let value = day[key] as? Double, value > 0, let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
+                samples.append(HKQuantitySample(type: type, quantity: HKQuantity(unit: unit, doubleValue: value), start: at, end: at))
+            }
+        }
+
+        // What this app wrote over the range goes first, so writing the same days again replaces
+        // them instead of adding to them. Another app's samples are never touched.
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+        ])
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var errors: [String] = []
+        for type in shareTypes() {
+            group.enter()
+            store.deleteObjects(of: type, predicate: predicate) { _, _, error in
+                if let error = error {
+                    lock.lock()
+                    errors.append(error.localizedDescription)
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+        let toSave = samples
+        group.notify(queue: .global(qos: .utility)) {
+            lock.lock()
+            let found = errors
+            lock.unlock()
+            if toSave.isEmpty {
+                call.resolve(["written": 0, "errors": found])
+                return
+            }
+            self.store.save(toSave) { _, error in
+                if let error = error {
+                    call.reject(error.localizedDescription, "failed")
+                    return
+                }
+                call.resolve(["written": toSave.count, "errors": found])
+            }
         }
     }
 

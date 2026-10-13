@@ -24,6 +24,7 @@ import { sha256Hex } from './sha256.js'
 import { mediaStore } from './media-store.js'
 import { DEFAULT_LIMITS, MB } from './media-limits.js'
 import { t } from './i18n-core.js'
+import { normalizeDayPhotos } from './day-photos.js'
 
 export const BACKUP_JSON = 'opengym-backup.json'
 const MEDIA_ENTRY = /^media\/([0-9a-f]{64})\.(jpg|png|webp|gif|mp4|mov|webm)$/
@@ -56,6 +57,12 @@ export function sanitizeCustomMedia(state) {
     // all, and the workout shows the first WORKOUT_MEDIA_MAX as it would anywhere else.
     const list = workoutMediaOf(w, Infinity)
     if (list.length) w.media = list; else delete w.media
+  }
+  // the progress photos kept on a day of the daily log (lib/day-photos.js)
+  for (const e of Array.isArray(state?.dailyLog) ? state.dailyLog : []) {
+    if (!e || typeof e !== 'object' || !('photos' in e)) continue
+    const list = normalizeDayPhotos(e.photos)
+    if (list.length) e.photos = list; else delete e.photos
   }
   return state
 }

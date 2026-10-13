@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, forwardRef, useSyncExternalStore } from 'r
 import { useNavigate, useParams, useLocation, Navigate } from 'react-router-dom'
 import { useStore, DEF, hasData } from '../store/useStore.js'
 import { healthStatus, loadHealth, enableHealth, disableHealth, openHealthConnect, onHealthChange } from '../lib/health-sync.js'
-import { appleHealthStatus, connectAppleHealth, disconnectAppleHealth, importAppleHealth, loadAppleHealth, onAppleHealthChange } from '../lib/apple-health.js'
+import { appleHealthStatus, connectAppleHealth, disableHealthWrite, disconnectAppleHealth, enableHealthWrite, importAppleHealth, loadAppleHealth, onAppleHealthChange } from '../lib/apple-health.js'
 import { workoutControls } from '../lib/workout-controls.js'
 import { speedUnitOf } from '../lib/speed.js'
 import { formulaOf, FORMULA_NAMES } from '../lib/onerm.js'
@@ -1444,6 +1444,12 @@ function AppleHealthCard({ toast }) {
     else toast(r.reason === 'entitlement' ? t('This install has no Apple Health permission') : t('Could not connect to Apple Health'))
   })
   const turnOff = () => run(async () => { setH(await disconnectAppleHealth()) })
+  const writeOn = () => run(async () => {
+    const r = await enableHealthWrite(getS, upd)
+    setH(await loadAppleHealth())
+    toast(r.ok ? t('Writing to Apple Health') : r.reason === 'denied' ? t('Apple Health did not allow writing. Health app → Sharing → Apps → LiftLog.') : t('Could not connect to Apple Health'))
+  })
+  const writeOff = () => run(async () => { setH(await disableHealthWrite()) })
   const readNow = () => run(async () => {
     const r = await importAppleHealth(getS, upd, { days: 30, force: true })
     setH(await loadAppleHealth())
@@ -1457,6 +1463,11 @@ function AppleHealthCard({ toast }) {
         subtitle={t('Steps, sleep, weight and workouts from the iPhone, an Apple Watch or a Garmin.')}>
         <Switch checked={!!h.on} disabled={busy} onChange={v => (v ? turnOn() : turnOff())} />
       </Row>
+      {h.on && <Row icon="share" iconTint="var(--pink)" title={t('Write to Apple Health')}
+        subtitle={h.write ? (h.writeError ? t('The last write failed; it tries again next time.') : h.writeAt ? t('Your weigh-ins and each day\'s calories and macros · last written {0}', fmtAgo(h.writeAt)) : t('Your weigh-ins and each day\'s calories and macros'))
+          : t('Your weigh-ins and each day\'s calories and macros, for other apps to read. A weight from a scale is not written back.')}>
+        <Switch checked={!!h.write} disabled={busy} onChange={v => (v ? writeOn() : writeOff())} />
+      </Row>}
       {h.on && <Row icon="repeat" iconTint="var(--blue)" title={t('Read the last 30 days now')}
         subtitle={h.at ? t('Last read {0}', fmtAgo(h.at)) : undefined} accessory="chevron" onClick={readNow} />}
       {h.error === 'entitlement' && <Row icon="warning" iconTint="var(--orange)" title={t('No Apple Health permission in this install')}

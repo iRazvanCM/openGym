@@ -37,6 +37,7 @@ import { e1rmSeries } from './onerm.js'
 import { isCardio, exOr } from './exercises.js'
 import { entryNutrition, normalizeFoodList } from './food.js'
 import { excusedOn } from './day-notes.js'
+import { normalizeDayPhotos } from './day-photos.js'
 
 export const KCAL_PER_KG = 7700
 export const LB_PER_KG = 2.20462262
@@ -220,12 +221,14 @@ export function normalizeLogEntry(raw) {
   if (food.length) e.food = food
   if (raw.done === true && food.length) e.done = true
   if (raw.partial === true) e.partial = true
+  const photos = normalizeDayPhotos(raw.photos)
+  if (photos.length) e.photos = photos
   const hk = Array.isArray(raw.hk) ? HK_FIELDS.filter(k => raw.hk.includes(k) && e[k] != null) : []
   if (hk.length) e.hk = hk
   return e
 }
 
-export const logHasValues = e => !!e && (LOG_KEYS.some(k => e[k] != null) || !!e.note || !!e.food?.length)
+export const logHasValues = e => !!e && (LOG_KEYS.some(k => e[k] != null) || !!e.note || !!e.food?.length || !!e.photos?.length)
 
 /**
  * The list in its one-entry-per-day shape, oldest first. Two entries for a day (an imported
@@ -249,6 +252,8 @@ export function normalizeDailyLogState(state) {
       m.food = [...(a.food || []).filter(it => !ids.has(it.id)), ...(b.food || [])]
     }
     if (a.done || b.done) m.done = true
+    // the two halves' photos, one per file
+    if (a.photos || b.photos) m.photos = normalizeDayPhotos([...(b.photos || []), ...(a.photos || [])])
     // a day either half marked as logged only in part stays so
     if (a.partial || b.partial) m.partial = true; else delete m.partial
     // a field Apple Health filled in stays marked so only where the value kept came from there

@@ -1,5 +1,5 @@
 {
-  "about": "Which blob hashes a state references. api/media.js referencedHashes() and frontend/src/lib/media-refs.js referencedHashes() must both give `expect` (compared as sorted lists) for every `state` here: the server keeps and the client keeps exactly this set. Each of customEx[].media.hash, customEx[].media.poster.hash and the same two of every entry of workouts[].media counts on its own when it matches /^[0-9a-f]{64}$/ — deliberately looser than normalizeMediaRef, because this set decides what is kept.",
+  "about": "Which blob hashes a state references. api/media.js referencedHashes() and frontend/src/lib/media-refs.js referencedHashes() must both give `expect` (compared as sorted lists) for every `state` here: the server keeps and the client keeps exactly this set. Each of customEx[].media.hash, customEx[].media.poster.hash, the same two of every entry of workouts[].media and of every dailyLog[].photos[].m (a progress photo of a day) counts on its own when it matches /^[0-9a-f]{64}$/ — deliberately looser than normalizeMediaRef, because this set decides what is kept.",
   "referencedHashes": [
     {
       "name": "no state at all",
@@ -869,6 +869,78 @@
         "workouts": []
       },
       "expect": []
+    },
+    {
+      "name": "progress photos on a day of the daily log, with a pose",
+      "state": {
+        "dailyLog": [
+          {
+            "d": "2026-11-02",
+            "t": 1,
+            "photos": [
+              {
+                "pose": "front",
+                "m": {
+                  "kind": "image",
+                  "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "mime": "image/webp",
+                  "size": 1000,
+                  "width": 800,
+                  "height": 600,
+                  "at": 1
+                }
+              },
+              {
+                "pose": "side",
+                "m": {
+                  "kind": "image",
+                  "hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                  "mime": "image/webp",
+                  "size": 1000,
+                  "width": 800,
+                  "height": 600,
+                  "at": 1,
+                  "poster": {
+                    "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "mime": "image/webp",
+                    "size": 10,
+                    "width": 8,
+                    "height": 6
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "d": "2026-11-03",
+            "t": 1,
+            "photos": "not a list"
+          },
+          {
+            "d": "2026-11-04",
+            "t": 1,
+            "photos": [
+              null,
+              3,
+              {
+                "pose": "back"
+              },
+              {
+                "pose": "back",
+                "m": {
+                  "hash": "not-a-hash"
+                }
+              }
+            ]
+          },
+          null
+        ]
+      },
+      "expect": [
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      ]
     }
   ]
 }
